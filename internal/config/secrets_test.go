@@ -318,11 +318,11 @@ func TestTheReservedListComesFromTheUserLayerOnly(t *testing.T) {
 
 	// The contrast that makes the point: the merged configuration does carry the
 	// project's name, which is exactly why the user-only function exists.
-	merged, _, err := config.Load(project, user, config.Flags{})
+	merged, err := config.Load(project, user, config.Flags{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if !slices.Contains(merged.ProviderKeyNames(), "PROJECT_KEY_NAME") {
+	if !slices.Contains(merged.Config.ProviderKeyNames(), "PROJECT_KEY_NAME") {
 		t.Skip("provider entries no longer accumulate across layers, so this guard is no longer load-bearing")
 	}
 }
