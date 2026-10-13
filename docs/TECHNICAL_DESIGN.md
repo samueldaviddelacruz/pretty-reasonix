@@ -248,7 +248,7 @@ pretty-reasonix/
 │   ├── sandbox/                       # Spec + seatbelt_darwin.go / bwrap_linux.go / none
 │   ├── session/                       # transcript model, store, leases, resume, Meta sidecar
 │   ├── agent/                         # the turn loop, tool batching, ContextManager
-│   ├── context/                       # compaction: plan, digest, keep policy, projections
+│   ├── compaction/                    # compaction: plan, digest, keep policy, projections
 │   ├── ext/
 │   │   ├── mcp/                       #   MCP client: stdio + http transports
 │   │   ├── skill/                     #   skill discovery + inline execution
