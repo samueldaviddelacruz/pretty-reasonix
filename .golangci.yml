@@ -1,0 +1,254 @@
+# golangci-lint configuration — pretty-reasonix
+#
+# Enforcement tier 1 of the Go practice baseline (docs/GO-STANDARDS.md).
+#
+# The baseline has two tiers:
+#   1. everything a linter can decide is decided HERE, on every commit;
+#   2. everything a linter cannot decide is a numbered item in the
+#      post-implementation audit (docs/GO-STANDARDS.md §6).
+#
+# Every entry cites the baseline rule it enforces as [#n]. Relaxing or disabling
+# an entry requires a comment naming the rule being traded away and why: a
+# silent loosening is a review failure.
+#
+# Pinned to golangci-lint v2.14.0, config schema "2". Bump the tool and this file
+# together, then re-run the audit mapping (docs/GO-STANDARDS.md §8).
+#
+#   golangci-lint config verify   # schema + settings
+#   golangci-lint run             # the gate
+
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  # [#82] test tiers are build tags. Untagged files are always linted, so this
+  # adds the integration tier rather than replacing the default one.
+  build-tags:
+    - integration
+
+linters:
+  # errcheck, govet, ineffassign, staticcheck, unused [#16]
+  default: standard
+
+  enable:
+    # --- error handling and control flow
+    - errorlint          # [#49][#50][#51] %w over ==, errors.Is/As
+    - nilerr             # [#45] returning nil after a non-nil error
+    - nilnil             # [#45] (nil, nil) is a typed-nil trap
+    - errchkjson         # [#77] ummarshalling errors are not ignorable
+    - wastedassign       # [#1][#44] assignments nothing reads
+    - reassign           # [#1] reassigning the wrong thing
+    - nestif             # [#2] return early, keep the happy path left
+    - noinlineerr        # design: handle errors explicitly at the call site, not inline
+    - nakedret           # [#43] naked returns hide what is returned
+    - nonamedreturns     # [#43] named results only where they earn it
+    - errname            # [#49] *Error types, Err* values
+
+    # --- resources and I/O
+    - bodyclose          # [#79] close every response body, error paths included
+    - sqlclosecheck      # [#78][#79] close Rows/Stmt
+    - rowserrcheck       # [#78] check rows.Err() after iterating
+    - noctx              # [#81] every outbound request carries a context
+    - gosec              # [#18] overflow, [#81] timeouts, file permissions
+    - canonicalheader    # [#80] header canonicalization
+
+    # --- concurrency
+    - containedctx       # [#61] never store a context in a struct
+    - contextcheck       # [#61][#62] propagate context, no orphan goroutines
+    - fatcontext         # [#61] no context accumulation inside a loop
+    - copyloopvar        # [#63][#85] Go 1.22+ loop vars: flags a redundant copy
+
+    # --- data, allocation, hot paths (measure: [#56][#89][#95])
+    - prealloc           # [#21][#27] preallocate slices and maps
+    - makezero           # [#25] append onto a non-zero-length slice
+    - unconvert          # [#40] drop no-op conversions
+    - mirror             # [#40] avoid bouncing between []byte and string
+    - perfsprint         # [#39] cheaper than fmt when fmt is not needed
+    - usestdlibvars      # [#75] named constants over bare literals
+    - intrange           # [#30] range over int
+
+    # --- structure, API surface, documentation
+    - gocritic           # [#2][#14][#17][#30][#35][#40][#79] broad check set
+    - revive             # [#4][#7][#14][#15][#42][#49][#61] curated below
+    - gochecknoinits     # [#3] no init(): registration is explicit in bootstrap
+    - interfacebloat     # [#5][#6] keep interfaces small
+    - ireturn            # [#7] return concrete types (allow list below)
+    - decorder           # [#12] one declaration order per file
+    - godot              # [#15] comments are sentences
+    - nolintlint         # [#53] a //nolint must be specific and explain itself
+    - godox              # [#53] no bare BUG/FIXME
+
+    # --- naming, layout and process discipline
+    - depguard           # [#13] no utils/common/base/... packages
+    - predeclared        # [#14] do not shadow predeclared identifiers
+    - forcetypeassert    # [#8] no bare type assertions: the any-bag boundary
+    - forbidigo          # [#48][#86][#87] plus "only cli/main prints and exits"
+    - modernize          # [#63] current idioms, incl. per-iteration loop variables
+    - durationcheck      # [#75] durations: mixed-unit arithmetic
+
+    # --- tests
+    - testpackage        # [#90] external _test packages
+    - thelper            # [#90] helpers call t.Helper()
+    - tparallel          # [#84] t.Parallel() applied consistently
+    - paralleltest       # [#84]
+    - usetesting         # [#86][#87] t.Context/t.TempDir over hand-rolled setup
+    - exptostd           # [#88] stdlib test utilities over hand-rolled fakes
+
+    # --- switch statements that must stay complete
+    - exhaustive         # design: every switch over ChunkKind/Decision/RowKind/TurnStatus must be total
+
+    # --- spelling and text hygiene
+    - misspell           # design: user-facing strings and identifiers are spelled correctly
+    - bidichk            # design: reject bidirectional-override characters in source
+    - dupword            # design: no duplicated words in comments or strings
+    - asasalint          # design: correct []any spread at an any boundary [#8]
+
+  settings:
+    govet:
+      # [#1] accidental shadowing: := inside an inner block declares a new
+      # variable instead of assigning the outer one.
+      enable:
+        - shadow
+      # [#94] fieldalignment is deliberately NOT enabled: the baseline marks
+      # struct field order as a hot-path optimization, and the analyzer is
+      # noisy on ordinary types. Enable it per package with a benchmark to
+      # justify it, or not at all.
+
+    ireturn:
+      # [#7] returning a concrete type is the default. These are the deliberate
+      # exceptions the baseline names (shared, up-front abstractions), plus the
+      # vocabulary defined once in internal/contract and consumed by several
+      # implementations.
+      allow:
+        - error
+        - empty
+        - anon
+        - stdlib
+        - Provider
+        - Tool
+        - Sink
+        - Gate
+        - Approver
+        - Store
+        - Runner
+        - Overlay
+
+    interfacebloat:
+      # [#5][#6] small interfaces. Raising this needs a comment on the type
+      # explaining why the interface is genuinely this wide.
+      max: 6
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+
+    godox:
+      # [#53] a bare TODO is a review failure; project convention is
+      # TODO(<ticket-id>): text. BUG and FIXME must never ship at all.
+      keywords:
+        - BUG
+        - FIXME
+
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: '^fmt\.Print.*$'
+          msg: "only internal/frontend and cmd may write to the process streams (docs/TECHNICAL_DESIGN.md §6.2)"
+        - pattern: '^print(ln)?$'
+          msg: "emit a Sink event, do not use the built-in print"
+        - pattern: '^os\.(Stdout|Stderr)$'
+          msg: "only internal/frontend and cmd may write to the process streams (§6.2)"
+        - pattern: '^os\.Exit$'
+          msg: "only cmd/prx and internal/frontend/cli decide exit codes (§6.2)"
+        - pattern: '^panic$'
+          msg: "return an error instead; panic is a cmd-level programmer error only [#48]"
+        - pattern: '^log\.Fatal.*$'
+          msg: "no fatal logging from library code [#48]"
+        - pattern: '^time\.Sleep$'
+          msg: "never sleep to synchronise, not even in a test [#86]"
+        - pattern: '^time\.Now$'
+          msg: "inject the clock and read from it [#87]"
+        - pattern: '^http\.DefaultClient$'
+          msg: "never ship the default client [#81]"
+        - pattern: '^http\.DefaultServeMux$'
+          msg: "never ship the default mux [#81]"
+
+    depguard:
+      rules:
+        no-vague-packages:
+          deny:
+            - pkg: '**/{utils,common,base,helpers,misc,shared,types,consts}'
+              desc: "a vague package name tells the reader nothing [#13] — name the capability"
+
+    revive:
+      # [#15] documented, [#14] named, [#2] flat, [#49] errors, [#61] contexts,
+      # [#42] receivers. Rules are named explicitly so the set is reviewable
+      # rather than whatever the estimator default happens to be.
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: redefines-builtin-id
+        - name: indent-error-flow
+        - name: superfluous-else
+        - name: early-return
+        - name: error-strings
+        - name: error-naming
+        - name: error-return
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: receiver-naming
+        - name: unused-receiver
+        - name: unexported-return
+        - name: unreachable-code
+        - name: empty-block
+        - name: struct-tag
+
+  exclusions:
+    generated: lax
+    rules:
+      # `text` matches the REPORTED MESSAGE, not the source line: forbidigo
+      # reports `use of \`X\` forbidden because "msg"`. Getting this wrong makes
+      # an exclusion look correct and never fire.
+      #
+      # The only places allowed to own the process streams and the exit code
+      # (§6.2). Keeping this list short is the point: it is an allow-list of two
+      # directories, not a blanket exemption.
+      - path: '^(cmd|internal/frontend)/.*\.go$'
+        linters: [forbidigo]
+        text: 'use of `(fmt\.Print[^`]*|print|println|os\.Stdout|os\.Stderr|os\.Exit)` forbidden'
+      # The root entry point is the same exception while E1-T1 moves it to cmd/prx.
+      - path: '^main\.go$'
+        linters: [forbidigo]
+        text: 'use of `(fmt\.Print[^`]*|print|println|os\.Stdout|os\.Stderr|os\.Exit)` forbidden'
+      # cmd is where "we cannot start" legitimately panics [#48].
+      - path: '^cmd/.*\.go$'
+        linters: [forbidigo]
+        text: 'use of `panic` forbidden'
+      # Tests may read the clock but may never sleep to synchronise [#86].
+      - path: '_test\.go$'
+        linters: [forbidigo]
+        text: 'use of `time\.Now` forbidden'
+      # Test fixtures legitimately contain weak keys, sample credentials and
+      # deliberately-insecure inputs.
+      - path: '_test\.go$'
+        linters: [gosec, errcheck]
+
+formatters:
+  enable:
+    - gofmt            # [#16] canonical formatting
+    - goimports        # [#16] import grouping and ordering
+  settings:
+    gofmt:
+      simplify: true
+    goimports:
+      # Our own module last, after the standard library and third-party imports.
+      local-prefixes:
+        - pretty-reasonix
+
+issues:
+  # Report everything: a capped report hides the shape of the problem.
+  max-issues-per-linter: 0
+  max-same-issues: 0
