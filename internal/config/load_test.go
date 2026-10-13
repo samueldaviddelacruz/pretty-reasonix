@@ -170,14 +170,17 @@ func TestResolutionOrderPerSection(t *testing.T) {
 			user := writeTemp(t, dir, "user.toml", tc.user)
 			project := writeTemp(t, dir, "project.toml", tc.project)
 
-			cfg, warnings, err := config.Load(project, user, tc.flags)
+			result, err := config.Load(project, user, tc.flags)
 			if err != nil {
 				t.Fatalf("Load: %v", err)
 			}
-			if len(warnings) != 0 {
-				t.Errorf("unexpected warnings: %v", warnings)
+			if len(result.Warnings) != 0 {
+				t.Errorf("unexpected warnings: %v", result.Warnings)
 			}
-			tc.assert(t, cfg)
+			if len(result.Ignored) != 0 {
+				t.Errorf("a narrowing was refused: %v", result.Ignored)
+			}
+			tc.assert(t, result.Config)
 		})
 	}
 }
@@ -190,18 +193,24 @@ func TestFlagsBeatBothFiles(t *testing.T) {
 	user := writeTemp(t, dir, "user.toml", "default_model = \"from-user\"\n[permissions]\nmode = \"ask\"\n")
 	project := writeTemp(t, dir, "project.toml", "default_model = \"from-project\"\n[permissions]\nmode = \"allow\"\n")
 
-	cfg, _, err := config.Load(project, user, config.Flags{
+	result, err := config.Load(project, user, config.Flags{
 		Model:          new("from-flag"),
 		PermissionMode: new("deny"),
 	})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
+	cfg := result.Config
 	if cfg.DefaultModel != "from-flag" {
 		t.Errorf("default_model = %q, want the flag's value", cfg.DefaultModel)
 	}
 	if cfg.Permissions.Mode != "deny" {
 		t.Errorf("permissions.mode = %q, want the flag's value", cfg.Permissions.Mode)
+	}
+	// The project asked to widen the fallback and was refused, which is E2-T6
+	// arriving through the ordinary path rather than a constructed one.
+	if len(result.Ignored) != 1 || result.Ignored[0].Key != "permissions.mode" {
+		t.Errorf("the project widened permissions.mode with no notice: %v", result.Ignored)
 	}
 }
 
@@ -213,13 +222,14 @@ func TestMissingFilesAreOrdinary(t *testing.T) {
 	dir := t.TempDir()
 	absent := filepath.Join(dir, "absent.toml")
 
-	cfg, warnings, err := config.Load(absent, absent, config.Flags{Model: new("from-flag")})
+	result, err := config.Load(absent, absent, config.Flags{Model: new("from-flag")})
 	if err != nil {
 		t.Fatalf("Load with no files at all: %v", err)
 	}
-	if len(warnings) != 0 {
-		t.Errorf("unexpected warnings: %v", warnings)
+	if len(result.Warnings) != 0 {
+		t.Errorf("unexpected warnings: %v", result.Warnings)
 	}
+	cfg := result.Config
 	if cfg.DefaultModel != "from-flag" {
 		t.Errorf("default_model = %q, want the flag still applied over the defaults", cfg.DefaultModel)
 	}
@@ -236,12 +246,12 @@ func TestUnknownKeysAreAttributedToTheirFile(t *testing.T) {
 	user := writeTemp(t, dir, "user.toml", "[ui]\ntheme = \"dark\"\nmystery = 1\n")
 	project := writeTemp(t, dir, "project.toml", "[agent]\nalso_mystery = 2\n")
 
-	_, warnings, err := config.Load(project, user, config.Flags{})
+	result, err := config.Load(project, user, config.Flags{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	bySource := map[string]string{}
-	for _, w := range warnings {
+	for _, w := range result.Warnings {
 		bySource[w.Source] = w.Key
 	}
 	if bySource[user] != "ui.mystery" {

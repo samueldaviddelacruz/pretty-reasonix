@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"strings"
-
-	"github.com/BurntSushi/toml"
 )
 
 // Flags are the settings a command line can override, and nothing more.
@@ -41,34 +38,54 @@ func (f Flags) applyTo(cfg *Config) {
 	cfg.Permissions.Allow = append(cfg.Permissions.Allow, f.Allow...)
 }
 
+// Result is everything resolving the configuration produced.
+type Result struct {
+	// Config is the effective configuration: the layers collapsed, with every value
+	// a lower layer may not have already put back.
+	Config *Config
+	// Warnings are keys a file used that this version does not act on. They are
+	// compatibility notices — the file is newer than the program, or a key was
+	// renamed — and a run continues with them.
+	Warnings []Warning
+	// Ignored is what a project file asked for and may not have. It is kept apart
+	// from Warnings because these are security notices: `prx doctor` should show
+	// them prominently, and a stricter caller may refuse to run when a project
+	// asked for more than it is entitled to.
+	Ignored IgnoredProjectSettings
+}
+
 // Load resolves the configuration from the four sources, in the order fixed by
 // docs/TECHNICAL_DESIGN.md §6.11:
 //
 //	flags > ./prx.toml > <home>/config.toml > built-in defaults
 //
 // The two files are decoded into one configuration from the bottom up — defaults
-// first, then the user file, then the project file — so a key a later file does
-// not mention keeps what an earlier one decided. Overlaying whole structs
-// instead would reinstate the higher layer's *defaults* over the lower layer's
-// real settings, which is the bug this shape exists to avoid.
+// first, then the user file, then the project file — so a key a later file does not
+// mention keeps what an earlier one decided. Overlaying whole structs instead would
+// reinstate the higher layer's *defaults* over the lower layer's real settings,
+// which is the bug this shape exists to avoid.
 //
-// A missing file is ordinary: a first run has no user configuration, and a
-// project without one is the common case. A file that cannot be parsed is not,
-// and is reported with the path that failed rather than silently skipped.
-func Load(projectPath, userPath string, flags Flags) (*Config, []Warning, error) {
+// What a project may not decide is captured before its file is decoded and put back
+// after it, so a refused value never reaches the caller at all: see
+// holdBackUserGlobals and holdBackWidenings, both reported in Result.Ignored.
+//
+// A missing file is ordinary: a first run has no user configuration, and a project
+// without one is the common case. A file that cannot be parsed is not, and is
+// reported with the path that failed rather than silently skipped.
+func Load(projectPath, userPath string, flags Flags) (*Result, error) {
 	cfg := Default()
-	var warnings []Warning
+	result := &Result{Config: cfg}
 
-	// Lowest priority first, so each file overwrites only what it names. The
-	// project file is the higher layer, and the only one whose user-global
-	// settings are held back — keyed by position rather than by comparing paths,
-	// which would misfire for a caller that passed the same path twice.
+	// Lowest priority first, so each file overwrites only what it names. The project
+	// file is the higher layer and the only one whose settings are held back —
+	// keyed by position rather than by comparing paths, which would misfire for a
+	// caller that passed the same path twice.
 	layers := []struct {
-		path         string
-		maySetGlobal bool
+		path    string
+		project bool
 	}{
-		{userPath, true},
-		{projectPath, false},
+		{userPath, false},
+		{projectPath, true},
 	}
 	for _, layer := range layers {
 		if layer.path == "" {
@@ -79,73 +96,48 @@ func Load(projectPath, userPath string, flags Flags) (*Config, []Warning, error)
 			continue
 		}
 		if err != nil {
-			return nil, nil, fmt.Errorf("reading configuration %s: %w", layer.path, err)
+			return nil, fmt.Errorf("reading configuration %s: %w", layer.path, err)
 		}
-		// The settings a project may not decide are captured before the decode
-		// and restored after it, so the value never reaches the caller at all.
+		// The settings a project may not decide are captured before the decode and
+		// put back after it.
 		before := *cfg
 		meta, found, err := apply(cfg, body)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s: %w", layer.path, err)
+			return nil, fmt.Errorf("%s: %w", layer.path, err)
 		}
-		if !layer.maySetGlobal {
-			found = append(found, holdBackUserGlobals(cfg, &before, meta)...)
+		if layer.project {
+			result.Ignored = append(result.Ignored,
+				holdBackWidenings(cfg, &before, meta, layer.path)...)
+			result.Ignored = append(result.Ignored,
+				holdBackUserGlobals(cfg, &before, meta, layer.path)...)
 		}
 		for i := range found {
 			found[i].Source = layer.path
 		}
-		warnings = append(warnings, found...)
+		result.Warnings = append(result.Warnings, found...)
 	}
 
 	flags.applyTo(cfg)
-	return cfg, warnings, nil
+	return result, nil
 }
 
 // UserGlobalKeys are the settings only the user's own configuration may decide.
 //
-// docs/TECHNICAL_DESIGN.md §6.11 marks these "user-global only", and the reason
-// is a security one rather than a tidy one: a cloned repository must not be able
-// to change how someone's editor behaves, or where their credentials live, by
-// committing a file.
+// docs/TECHNICAL_DESIGN.md §6.11 marks these "user-global only", and the reason is
+// a security one rather than a tidy one: a cloned repository must not be able to
+// change how someone's editor behaves by committing a file.
 //
-// A project that names one is not an error. Refusing to start over a key the
-// project cannot control would be a worse outcome for the person running it, so
-// the value is held back and reported instead — see holdBackUserGlobals.
+// A project that names one is not an error. Refusing to start over a key the project
+// cannot control would be a worse outcome for the person running it, so the value is
+// held back and reported instead — see holdBackUserGlobals, and restoreKey for where
+// each key is put back.
 //
-// The credential-path settings §6.11 also marks global-only arrive with E2-T5 and
-// join this list then; there is nothing to police yet.
+// E2-T4 recorded that the credential-path settings §6.11 also marks global-only
+// would join this list. They have not, because they turned out not to exist as
+// settings: E2-T5 found that what a project must not supply is a credential
+// *variable*, and that is policed by name in secrets.go rather than by a
+// configuration key here.
 var UserGlobalKeys = []string{"ui.commandmode"}
-
-// holdBackUserGlobals restores every key the project named that it may not
-// decide, and reports each one.
-func holdBackUserGlobals(cfg, before *Config, meta toml.MetaData) []Warning {
-	var held []Warning
-	for _, key := range UserGlobalKeys {
-		if !meta.IsDefined(strings.Split(key, ".")...) {
-			continue
-		}
-		restoreUserGlobal(cfg, before, key)
-		held = append(held, Warning{
-			Key:  key,
-			Note: "only the user's configuration may set this; the project's value was ignored",
-		})
-	}
-	return held
-}
-
-// restoreUserGlobal puts back the value a key had before the project file was
-// read.
-//
-// It is an if rather than a switch while there is one key to restore, and
-// becomes a switch when E2-T5 adds the credential-path keys. What matters is that
-// the rule is enforced by the assertion in userglobal_test.go — "the project
-// changed nothing" — rather than by the warning appearing, so a key with no
-// branch here fails the test instead of passing quietly.
-func restoreUserGlobal(cfg, before *Config, key string) {
-	if key == "ui.commandmode" {
-		cfg.UI.CommandMode = before.UI.CommandMode
-	}
-}
 
 // Sources names the layers in the resolution order, lowest priority first, so
 // that a caller which needs to know *which* source decided something — the

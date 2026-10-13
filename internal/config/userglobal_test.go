@@ -45,35 +45,35 @@ func TestProjectCannotSetUserGlobalKeys(t *testing.T) {
 			// 1. Not applied. With no user file, the effective configuration must
 			// be exactly the defaults: the project named the key and changed
 			// nothing.
-			cfg, warnings, err := config.Load(project, "", config.Flags{})
+			result, err := config.Load(project, "", config.Flags{})
 			if err != nil {
 				t.Fatalf("Load: %v", err)
 			}
-			if !reflect.DeepEqual(cfg, config.Default()) {
+			if !reflect.DeepEqual(result.Config, config.Default()) {
 				t.Errorf("a project file setting %s changed the effective configuration:\ngot  %#v\nwant %#v",
-					key, cfg, config.Default())
+					key, result.Config, config.Default())
 			}
 
 			// 2. Reported, naming the key and the file to edit.
 			reported := 0
-			for _, w := range warnings {
-				if w.Key == key && w.Source == project {
+			for _, ignored := range result.Ignored {
+				if ignored.Key == key && ignored.Source == project {
 					reported++
 				}
 			}
 			if reported != 1 {
-				t.Errorf("want exactly one warning naming %s from %s, got %d in %v",
-					key, project, reported, warnings)
+				t.Errorf("want exactly one notice naming %s from %s, got %d in %v",
+					key, project, reported, result.Ignored)
 			}
 
 			// 3. The positive control. The same value from the user's own file is
 			// obeyed, which is what makes this a rule about projects rather than a
 			// test that would pass on a setting nothing reads.
-			fromUser, _, err := config.Load("", writeTemp(t, dir, "user.toml", body), config.Flags{})
+			fromUser, err := config.Load("", writeTemp(t, dir, "user.toml", body), config.Flags{})
 			if err != nil {
 				t.Fatalf("Load from the user's file: %v", err)
 			}
-			if reflect.DeepEqual(fromUser, config.Default()) {
+			if reflect.DeepEqual(fromUser.Config, config.Default()) {
 				t.Errorf("%s had no effect even from the user's own configuration, "+
 					"so this test would pass on a key nothing reads", key)
 			}
