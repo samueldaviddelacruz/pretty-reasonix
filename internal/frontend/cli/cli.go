@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 
+	"pretty-reasonix/internal/config"
 	"pretty-reasonix/internal/version"
 )
 
@@ -28,30 +29,41 @@ const (
 
 // usageLines is the short help shown for a bare invocation, for `help`, and
 // after an unrecognised command.
+//
+// The command name comes from the identity constant rather than a literal: a
+// usage line is an owner of that string like any other, and E1-T8 asserts there
+// is only one (internal/architecture/identity_test.go).
 var usageLines = []string{
 	"",
 	"Usage:",
-	"  prx                start an interactive session",
-	`  prx run "task"     run a task without a terminal UI`,
-	"  prx version        print build information",
+	fmt.Sprintf("  %-18s start an interactive session", config.BinaryName),
+	fmt.Sprintf("  %-18s run a task without a terminal UI", config.BinaryName+` run "task"`),
+	fmt.Sprintf("  %-18s print build information", config.BinaryName+" version"),
 	"",
 	"Further subcommands (setup, doctor, mcp, trust, hooks, config) are tracked by",
 	"Epic E19. See docs/TECHNICAL_DESIGN.md for the design of record.",
 }
 
+// binaryVersion is the one-line version report with the program's own name in
+// front of it. internal/version reports build facts and deliberately does not
+// know what the binary is called (E1-T8).
+func binaryVersion() string {
+	return config.BinaryName + " " + version.String()
+}
+
 // Run executes the command line and returns the process exit code.
 func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		return emit(stdout, append([]string{version.String()}, usageLines...), exitOK)
+		return emit(stdout, append([]string{binaryVersion()}, usageLines...), exitOK)
 	}
 
 	switch args[0] {
 	case "version", "--version", "-v":
-		return emit(stdout, []string{version.String()}, exitOK)
+		return emit(stdout, []string{binaryVersion()}, exitOK)
 	case "help", "--help", "-h":
 		return emit(stdout, usageLines, exitOK)
 	default:
-		first := fmt.Sprintf("prx: unknown command %q", args[0])
+		first := fmt.Sprintf("%s: unknown command %q", config.BinaryName, args[0])
 		return emit(stderr, append([]string{first}, usageLines...), exitUsage)
 	}
 }
