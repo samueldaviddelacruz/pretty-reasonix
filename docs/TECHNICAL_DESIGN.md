@@ -221,7 +221,7 @@ Reference scale, for calibration: `internal/{frontend 823, runtime 655, ext 523,
 | Shell parsing (for permission subjects) | `mvdan.cc/sh/v3/syntax` | Parsing beats pattern-matching for `Bash(...)` subject extraction and `:*` prefix rules. |
 | HTTP client | `net/http` from the standard library, wrapped in `internal/httpclient` for retry/SSE/proxy policy | One place owns retry, backoff, idle watchdog and proxy. |
 
-Every dependency above must be pure Go and must not break `CGO_ENABLED=0`; that is a review checklist item (ticket **E1-T4**).
+Every dependency above must be pure Go and must not break `CGO_ENABLED=0`. The policy, the approved list with a reason per module, what is deliberately refused, and the review checklist all live in [`DEPENDENCIES.md`](./DEPENDENCIES.md) (ticket **E1-T4**); `make pure-go` is the mechanical check.
 
 ### 6.2 Package layout and the dependency rule
 
