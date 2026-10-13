@@ -1,9 +1,9 @@
-// Package architecture holds the dependency-rule test: the check that this
-// module's import graph matches the layering declared in
-// docs/TECHNICAL_DESIGN.md §6.2.
+// Package architecture holds the tests that guard this repository's own
+// structural rules: the import layering in docs/TECHNICAL_DESIGN.md §6.2 and the
+// path-scoped exclusions in .golangci.yml.
 //
-// It contains no production code, deliberately. The rule needs one owner, and
+// It contains no production code, deliberately. The rules need one owner, and
 // putting the enforcement in its own package means the enforcement is subject to
-// the rule too: this package imports nothing else in the module, which is why it
-// is ranked alongside the contract layer.
+// the layering rule too: this package imports nothing else in the module, which
+// is why it is ranked alongside the contract layer.
 package architecture
