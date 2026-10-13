@@ -2,7 +2,7 @@
 
 Companion to [`TECHNICAL_DESIGN.md`](./TECHNICAL_DESIGN.md). This is the **file the GitHub project board is populated from**: one ticket per bullet, one epic per section, one milestone per group.
 
-**160 v1 tickets across 22 epics and 6 milestones**, plus a roadmap tier (§R1) that records every deferred subsystem with a stub ticket, so deferral is explicit rather than forgotten.
+**161 v1 tickets across 22 epics and 6 milestones**, plus a roadmap tier (§R1) that records every deferred subsystem with a stub ticket, so deferral is explicit rather than forgotten.
 
 ---
 
@@ -77,7 +77,7 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
 | E17 | Hooks | M4 | 5 | E4, E6 |
 | E18 | Instructions and `@`-references | M4 | 4 | E2, E4 |
 | E19 | CLI surface: routing, setup, doctor, completion | M5 | 6 | all M0–M4 |
-| E20 | Quality: test harness and end-to-end suite | M0–M5 | 7 | grows with every epic |
+| E20 | Quality: test harness and end-to-end suite | M0–M5 | 8 | grows with every epic |
 | E21 | Documentation and onboarding | M5 | 4 | all |
 | E22 | Release and distribution | M5 | 4 | all |
 
@@ -544,8 +544,8 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
   - AC: at least one scenario covers each doc-code from the exit-code table plus a compaction fold and a permission denial.
 - **E20-T3 · TUI reducer and render tests** — `size:M` · deps: `E10-T3` · labels: `type:test`, `area:quality`, `milestone:m2`
   - AC: reducer tests feed recorded event sequences and assert rows; render tests assert strings at 40, 80 and 200 columns plus a CJK case; no full-screen golden frames.
-- **E20-T4 · Table-driven suites for the deterministic cores** — `size:M` · deps: `E6-T3`, `E8-T3`, `E5-T12` · labels: `type:test`, `area:quality`, `milestone:m2`
-  - AC: permission precedence, subject extraction, bash classification, compaction acceptance math, keep-policy budgets and todo invariants each have exhaustive table-driven cases including the negative ones.
+- **E20-T4 · Table-driven suites for permission and todos** — `size:M` · deps: `E6-T3`, `E5-T12` · labels: `type:test`, `area:quality`, `milestone:m2`
+  - AC: permission precedence, subject extraction, bash classification and todo invariants each have exhaustive table-driven cases, including the negative ones (which rule wins, which command is refused, which list mutation is rejected).
 - **E20-T5 · Streaming performance benchmark** — `size:M` · deps: `E10-T2` · labels: `type:test`, `area:quality`, `risk:perf`, `milestone:m3`
   - AC: a benchmark measures renders-per-delta and total render time for a 50 K-token streamed answer; the suite fails if renders scale with delta count rather than with batches.
 - **E20-T6 · The TUI adds no engine behaviour** — `size:S` · deps: `E20-T2`, `E10-T1` · labels: `type:test`, `area:quality`, `risk:compat`, `milestone:m3`
@@ -556,6 +556,9 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
   - AC: the divergence table (§7) has a reasoned entry for every intentional departure from a rule, including the `init()` removal, the interface allow-list, the `any` options bag and the two sanctioned channel buffers.
   - AC: a `golangci-lint` version bump that changes the mapping updates §5/§6 in the same commit (§8).
   - AC: packages that start goroutines run `goleak` in `TestMain` (rule [#62]).
+- **E20-T8 · Table-driven suites for compaction** — `size:M` · deps: `E8-T2`, `E8-T3` · labels: `type:test`, `area:quality`, `milestone:m3`
+  - AC: the acceptance rules (candidate ≤ 50 % of window, strictly smaller than source, below the trigger) and the keep-policy budgets (1500 tokens per turn, `min(8192, window × 5 %)` in total, oldest-first) have exhaustive table-driven cases including the boundary values that must **fail** acceptance.
+  - AC: a test asserts that below the trigger nothing is written at all — no projection, no digest, no receipt.
 
 ### E21 · Documentation and onboarding — M5
 
