@@ -291,7 +291,7 @@ func Default() *Config {
 // file that may be malformed: nothing it does can alter what the user wrote.
 func Parse(body []byte) (*Config, []Warning, error) {
 	cfg := Default()
-	warnings, err := apply(cfg, body)
+	_, warnings, err := apply(cfg, body)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -307,22 +307,26 @@ const unknownKeyNote = "this version does not use this setting; it was ignored r
 // resolution order work at the decode step rather than by overlaying whole
 // structs, which would reinstate a higher layer's defaults over a lower layer's
 // real settings.
-func apply(cfg *Config, body []byte) ([]Warning, error) {
+// It also returns the TOML metadata, because which keys a file *named* is not
+// recoverable from the merged struct: a caller enforcing the user-global-only
+// rules (E2-T4) has to ask whether this file defined a key, not what the value
+// ended up being.
+func apply(cfg *Config, body []byte) (toml.MetaData, []Warning, error) {
 	meta, err := toml.Decode(string(body), cfg)
 	if err != nil {
 		// Both errors stay matchable: a caller may want the sentinel, and a
 		// human wants the parser's position.
-		return nil, errors.Join(ErrMalformed, fmt.Errorf("parsing configuration: %w", err))
+		return toml.MetaData{}, nil, errors.Join(ErrMalformed, fmt.Errorf("parsing configuration: %w", err))
 	}
 	undecoded := undecodedKeys(meta)
 	if len(undecoded) == 0 {
-		return nil, nil
+		return meta, nil, nil
 	}
 	warnings := make([]Warning, 0, len(undecoded))
 	for _, key := range undecoded {
 		warnings = append(warnings, Warning{Key: key.String(), Note: unknownKeyNote})
 	}
-	return warnings, nil
+	return meta, warnings, nil
 }
 
 // undecodedKeys lists what the file said and the schema did not recognise, in a
