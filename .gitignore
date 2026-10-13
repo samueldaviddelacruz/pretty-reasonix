@@ -8,6 +8,9 @@
 *.so
 *.dylib
 
+# Build output (the Makefile's build target writes bin/prx here)
+/bin/
+
 # Test binary, built with `go test -c`
 *.test
 

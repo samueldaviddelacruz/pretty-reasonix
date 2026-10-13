@@ -40,7 +40,12 @@ linters:
     - wastedassign       # [#1][#44] assignments nothing reads
     - reassign           # [#1] reassigning the wrong thing
     - nestif             # [#2] return early, keep the happy path left
-    - noinlineerr        # design: handle errors explicitly at the call site, not inline
+    # noinlineerr was enabled here and then removed after its first contact with
+    # real code: it bans `if err := f(); err != nil`, which is a near-universal
+    # Go idiom, and the risk it claims to address (a shadowed error) is already
+    # covered by govet's shadow analyzer and revive's indent-error-flow. It is
+    # not part of the practice baseline, so nothing moves to the audit to
+    # compensate. Do not re-enable it without deleting this note.
     - nakedret           # [#43] naked returns hide what is returned
     - nonamedreturns     # [#43] named results only where they earn it
     - errname            # [#49] *Error types, Err* values
@@ -217,10 +222,6 @@ linters:
       # (§6.2). Keeping this list short is the point: it is an allow-list of two
       # directories, not a blanket exemption.
       - path: '^(cmd|internal/frontend)/.*\.go$'
-        linters: [forbidigo]
-        text: 'use of `(fmt\.Print[^`]*|print|println|os\.Stdout|os\.Stderr|os\.Exit)` forbidden'
-      # The root entry point is the same exception while E1-T1 moves it to cmd/prx.
-      - path: '^main\.go$'
         linters: [forbidigo]
         text: 'use of `(fmt\.Print[^`]*|print|println|os\.Stdout|os\.Stderr|os\.Exit)` forbidden'
       # cmd is where "we cannot start" legitimately panics [#48].
