@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-// linterTimeout bounds the subprocess, so a linter that hangs fails this test
-// rather than hanging the suite.
-const linterTimeout = 2 * time.Minute
+// subprocessTimeout bounds every subprocess these tests start, so a linter that
+// hangs fails the test rather than hanging the whole suite.
+const subprocessTimeout = 2 * time.Minute
 
 // lintFixtures are written into a throwaway module so the real .golangci.yml can
 // be watched producing, or not producing, findings for them.
@@ -117,20 +117,16 @@ func TestForbidigoAllowListFires(t *testing.T) {
 
 	// --default=none --enable=forbidigo keeps this to the one linter under test,
 	// which is also what keeps it fast enough to run on every commit.
-	ctx, cancel := context.WithTimeout(context.Background(), linterTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, linter, "run",
+	output, err := runBounded(t, linter, work, "run",
 		"--config", ".golangci.yml",
 		"--default=none", "--enable=forbidigo",
 		"./...")
-	cmd.Dir = work
-	output, err := cmd.CombinedOutput()
-	if err != nil && len(output) == 0 {
+	if err != nil && strings.TrimSpace(output) == "" {
 		t.Fatalf("running %s: %v", linter, err)
 	}
 	// A non-zero exit is expected — the positive control is a finding — so only
 	// the output is inspected.
-	lines := forbidigoLines(string(output))
+	lines := forbidigoLines(output)
 	if len(lines) == 0 {
 		t.Fatalf("the linter reported no forbidigo findings at all, so this test proves nothing.\nOutput:\n%s", output)
 	}
@@ -203,4 +199,17 @@ func writeFile(t *testing.T, path, body string) {
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("writing %s: %v", path, err)
 	}
+}
+
+// runBounded runs one subprocess with a timeout and returns its combined output
+// and error. Every subprocess these tests start goes through here, so a linter
+// that hangs fails the test rather than the suite.
+func runBounded(t *testing.T, name, dir string, args ...string) (string, error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), subprocessTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	return string(output), err
 }

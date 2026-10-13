@@ -1,0 +1,126 @@
+# Continuous integration for pretty-reasonix.
+#
+# Two speeds, deliberately (docs/TECHNICAL_DESIGN.md §7.1 and §7.2):
+#
+#   * every push and pull request runs the cheap tiers, on both supported
+#     platforms, because the OS sandbox and the terminal differ between them;
+#   * the integration and e2e tiers run on a nightly schedule, with the race
+#     detector, because rule [#83] of the practice baseline says to schedule the
+#     expensive run rather than enabling it unconditionally.
+#
+# Every step is a Makefile target or a command a developer can run locally, so
+# CI and a terminal execute the same thing. `docs/GO-STANDARDS.md` §4 is the
+# audit a change is expected to have been through before it gets here.
+
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The module pins a toolchain (go.mod), so let Go fetch it rather than depend
+  # on whatever the runner image happens to ship.
+  GOTOOLCHAIN: auto
+  # This is the same pin named in .golangci.yml and asserted by the standards
+  # test. Bump both in one commit, or the gate and its documentation disagree.
+  GOLANGCI_LINT_VERSION: v2.14.0
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install the pinned golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" "$GOLANGCI_LINT_VERSION"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      # make lint runs `config verify` before `run`, so a config the tool no
+      # longer understands fails instead of reporting "no findings".
+      - name: Config and lint gate
+        run: make lint
+      - name: Formatting (gofmt and goimports, via the config's formatters)
+        run: golangci-lint fmt --diff
+      - name: go vet
+        run: make vet
+
+  test:
+    name: test (${{ matrix.os }})
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # Installed here too, not just in `lint`: the architecture package's
+      # standards test and allow-list test shell out to the real linter, and
+      # without it on PATH those two skip — a weak green that would leave the
+      # check unenforced in the one place it matters.
+      - name: Install the pinned golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" "$GOLANGCI_LINT_VERSION"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Unit tier, with the race detector
+        run: go test -race ./...
+      - name: Pure Go — the single static binary promise
+        run: make pure-go
+
+  cross:
+    name: cross-compile
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make cross
+      - name: Assert four platforms, not one binary copied four times
+        run: |
+          set -eu
+          built=$(ls dist | wc -l | tr -d ' ')
+          test "$built" -eq 4 || { echo "expected 4 binaries, found $built"; ls -l dist; exit 1; }
+          file dist/*
+
+  heavy:
+    name: integration and e2e (scheduled)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # The tiers are build tags (TDD §7.1). No tagged tests exist yet — E20
+      # creates them — so these run the untagged suite until then, which is
+      # exactly the point of the job existing before the tests do.
+      - name: Integration tier
+        run: go test -race -tags integration ./...
+      - name: End-to-end tier
+        run: go test -race -tags e2e ./...
