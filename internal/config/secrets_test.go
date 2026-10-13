@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -26,7 +27,11 @@ func TestASecretIsNeverPrinted(t *testing.T) {
 	// The verbs are a slice rather than literals at each call site, so this tests
 	// what fmt does with a Formatter instead of being folded away by a linter into
 	// the method call it reduces to.
-	verbs := []string{"%v", "%s", "%q", "%x", "%+v", "%#v"}
+	//
+	// %d, %t and %f are in the list because they are the ones that leak without
+	// Format: fmt cannot serve them from a Stringer, falls back to reflection, and
+	// reflect reads an unexported field even though Interface cannot.
+	verbs := []string{"%v", "%s", "%q", "%x", "%X", "%+v", "%#v", "%d", "%t", "%f"}
 	printed := make([]string, 0, len(verbs)+2)
 	printed = append(printed, secret.String(), secret.GoString())
 	for _, verb := range verbs {
@@ -90,7 +95,7 @@ func TestCredentialsComeOnlyFromTheGlobalEnvFile(t *testing.T) {
 		t.Fatalf("LoadCredentials: %v", err)
 	}
 	if got := credentials["TEST_PROVIDER_KEY"].Reveal(); got != secretValue {
-		t.Errorf("the key was not read back")
+		t.Error("the key was not read back")
 	}
 	if got := credentials["OTHER"].Reveal(); got != "plain value" {
 		t.Errorf("OTHER = %q, want the plain value", got)
@@ -123,6 +128,54 @@ func TestAMissingEnvFileIsOrdinary(t *testing.T) {
 	}
 	if len(credentials) != 0 || len(warnings) != 0 {
 		t.Errorf("got %d credentials and %d warnings, want none of either", len(credentials), len(warnings))
+	}
+}
+
+// TestALooselyReadableEnvFileIsReported: the keys are still the user's own, so this
+// is reported rather than refused — but a world-readable key is worth knowing about.
+func TestALooselyReadableEnvFileIsReported(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "env")
+	if err := os.WriteFile(path, []byte("TEST_PROVIDER_KEY="+secretValue+"\n"), 0o644); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+	// The write's mode is subject to the umask, so set it explicitly.
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+
+	_, warnings, err := config.LoadCredentials(path)
+	if err != nil {
+		t.Fatalf("LoadCredentials: %v", err)
+	}
+	found := false
+	for _, w := range warnings {
+		if strings.Contains(w.Note, "readable by others") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("a 0644 env file was read with no warning: %v", warnings)
+	}
+}
+
+// TestADuplicateNameKeepsTheFirstAndIsReported: a later duplicate must not be able
+// to silently replace an assignment, and must not be passed over in silence either.
+func TestADuplicateNameKeepsTheFirstAndIsReported(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := writeTemp(t, dir, "env", "TEST_PROVIDER_KEY=first-wins\nTEST_PROVIDER_KEY=second-loses\n")
+
+	credentials, warnings, err := config.LoadCredentials(path)
+	if err != nil {
+		t.Fatalf("LoadCredentials: %v", err)
+	}
+	if got := credentials["TEST_PROVIDER_KEY"].Reveal(); got != "first-wins" {
+		t.Errorf("the value is %q, want the first assignment to stand", got)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0].Note, "already assigned") {
+		t.Errorf("want one warning about the duplicate, got %v", warnings)
 	}
 }
 
@@ -160,8 +213,8 @@ func TestAProjectEnvFileCannotSupplyAProviderKey(t *testing.T) {
 		t.Errorf("the refused name was not reported: %v", attempted)
 	}
 
-	// A default is still honoured: it is text the project wrote, not the
-	// credential it was not allowed to name.
+	// A default is still honoured: it is text the project wrote, not the credential
+	// it was not allowed to name.
 	if got, _ := expander.Expand("${TEST_PROVIDER_KEY:-none}"); got != "none" {
 		t.Errorf("got %q, want the default", got)
 	}
@@ -171,8 +224,8 @@ func TestAProjectEnvFileCannotSupplyAProviderKey(t *testing.T) {
 	}
 }
 
-// TestAToolChildProcessCannotSeeAProviderKey runs a real child, because the claim
-// is about a child process rather than about our own slice arithmetic.
+// TestAToolChildProcessCannotSeeAProviderKey runs a real child, because the claim is
+// about a child process rather than about our own slice arithmetic.
 func TestAToolChildProcessCannotSeeAProviderKey(t *testing.T) {
 	t.Parallel()
 	const name = "TEST_PROVIDER_KEY"
@@ -181,7 +234,11 @@ func TestAToolChildProcessCannotSeeAProviderKey(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "/usr/bin/env")
-	cmd.Env = config.ChildEnv(parent, []string{name})
+	childEnv, refused := config.ChildEnv(parent, []string{name})
+	if len(refused) != 0 {
+		t.Errorf("a credential name was refused as essential: %v", refused)
+	}
+	cmd.Env = childEnv
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("running /usr/bin/env: %v", err)
@@ -191,12 +248,32 @@ func TestAToolChildProcessCannotSeeAProviderKey(t *testing.T) {
 		t.Errorf("the child environment still carries %s", name)
 	}
 	if strings.Contains(string(out), secretValue) {
-		t.Errorf("the child environment still carries the value")
+		t.Error("the child environment still carries the value")
 	}
 	// The positive control: a variable that was not scrubbed IS visible, so this
 	// test cannot pass by the child seeing no environment at all.
 	if !strings.Contains(string(out), "PATH=") {
 		t.Error("the child saw no environment at all, so the assertion above proves nothing")
+	}
+}
+
+// TestChildEnvNeverStripsWhatAChildNeeds: a configuration that names PATH must not
+// be able to leave a shell unable to find its own commands. The name is reported
+// instead of honoured, so a mistake is visible rather than mysteriously fatal.
+func TestChildEnvNeverStripsWhatAChildNeeds(t *testing.T) {
+	t.Parallel()
+	environ := []string{"PATH=/usr/bin", "HOME=/home/tester", "TEST_PROVIDER_KEY=" + secretValue}
+
+	childEnv, refused := config.ChildEnv(environ, []string{"PATH", "HOME", "TEST_PROVIDER_KEY"})
+
+	if !slices.Contains(childEnv, "PATH=/usr/bin") || !slices.Contains(childEnv, "HOME=/home/tester") {
+		t.Errorf("an essential variable was removed: %v", childEnv)
+	}
+	if slices.Contains(childEnv, "TEST_PROVIDER_KEY="+secretValue) {
+		t.Error("a real credential was kept because an unrelated name was also listed")
+	}
+	if len(refused) != 2 || !slices.Contains(refused, "PATH") || !slices.Contains(refused, "HOME") {
+		t.Errorf("refused = %v, want PATH and HOME reported as essential", refused)
 	}
 }
 
@@ -214,5 +291,53 @@ func TestProviderKeyNamesComesFromTheConfiguration(t *testing.T) {
 	}
 	if got := config.Default().ProviderKeyNames(); len(got) != 0 {
 		t.Errorf("the default configuration reserves %v, want nothing", got)
+	}
+}
+
+// TestTheReservedListComesFromTheUserLayerOnly is the regression test for the hole
+// a project file used to have: because provider entries accumulate across layers, a
+// merged configuration can gain a name from a committed file, and a project that can
+// widen the scrub list can have PATH removed from every tool child while one that can
+// shrink it switches scrubbing off. Reading the user layer alone closes both.
+func TestTheReservedListComesFromTheUserLayerOnly(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	user := writeTemp(t, dir, "user.toml", "[[providers]]\nname = \"user-vendor\"\nkind = \"openai\"\napi_key_env = \"USER_KEY_NAME\"\n")
+	project := writeTemp(t, dir, "project.toml", "[[providers]]\nname = \"project-vendor\"\nkind = \"anthropic\"\napi_key_env = \"PROJECT_KEY_NAME\"\n")
+
+	names, err := config.UserProviderKeyNames(user)
+	if err != nil {
+		t.Fatalf("UserProviderKeyNames: %v", err)
+	}
+	if !slices.Contains(names, "USER_KEY_NAME") {
+		t.Errorf("names = %v, want the user's own provider", names)
+	}
+	if slices.Contains(names, "PROJECT_KEY_NAME") {
+		t.Errorf("names = %v, but the project file contributed one: this is the hole", names)
+	}
+
+	// The contrast that makes the point: the merged configuration does carry the
+	// project's name, which is exactly why the user-only function exists.
+	merged, _, err := config.Load(project, user, config.Flags{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !slices.Contains(merged.ProviderKeyNames(), "PROJECT_KEY_NAME") {
+		t.Skip("provider entries no longer accumulate across layers, so this guard is no longer load-bearing")
+	}
+}
+
+// TestUserProviderKeyNamesWithoutAFileIsEmpty: no providers means nothing to reserve,
+// and a first run without a user file is ordinary.
+func TestUserProviderKeyNamesWithoutAFileIsEmpty(t *testing.T) {
+	t.Parallel()
+	for _, path := range []string{"", filepath.Join(t.TempDir(), "absent.toml")} {
+		names, err := config.UserProviderKeyNames(path)
+		if err != nil {
+			t.Fatalf("UserProviderKeyNames(%q): %v", path, err)
+		}
+		if len(names) != 0 {
+			t.Errorf("UserProviderKeyNames(%q) = %v, want nothing", path, names)
+		}
 	}
 }
