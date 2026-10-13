@@ -8,8 +8,9 @@
 *.so
 *.dylib
 
-# Build output (the Makefile's build target writes bin/prx here)
+# Build output: `make build` writes bin/, `make cross` writes dist/.
 /bin/
+/dist/
 
 # Test binary, built with `go test -c`
 *.test
