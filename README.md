@@ -15,6 +15,7 @@ Inspired by the feature set of [Reasonix](https://github.com/esengine/DeepSeek-R
 | [`docs/APPENDIX-B-BACKLOG.md`](docs/APPENDIX-B-BACKLOG.md) | The ticket backlog: 6 milestones, 22 epics, 161 v1 tickets with acceptance criteria, dependencies and sizes — plus a roadmap tier for everything deliberately deferred. |
 | [`docs/GO-STANDARDS.md`](docs/GO-STANDARDS.md) | How the rules in [`go-best-practices.md`](go-best-practices.md) are enforced: what `golangci-lint` decides, what the post-implementation audit decides, and where we deliberately diverge. |
 | [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md) | The dependency policy: the rule for admitting a module, the approved set with one reason each, what is deliberately refused, and the review checklist. |
+| [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) | How work reaches `master`: tickets, branches, commits, pull requests, and the optional local hooks. |
 
 ## Status
 

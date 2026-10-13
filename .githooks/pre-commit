@@ -1,0 +1,36 @@
+#!/bin/sh
+# Formatting check for the Go files you are about to commit.
+#
+#   git config core.hooksPath .githooks     # enable
+#   git config --unset core.hooksPath       # disable
+#
+# Deliberately only formatting. CI is the gate (.github/workflows/ci.yml runs
+# `make lint`, the race detector over the unit tier on two platforms, and the
+# cross-compile matrix); a hook that repeated all of it would slow every commit
+# for feedback you get a minute later anyway. Unformatted code is the one failure
+# that is cheap to catch here and merely irritating to learn about from a red
+# build.
+#
+# `make fmt` reformats the whole tree; this reports the staged files so the fix
+# is one command away.
+
+set -eu
+
+unformatted=$(
+	git diff --cached --name-only --diff-filter=ACM -- '*.go' |
+		while IFS= read -r file; do
+			if [ -f "$file" ]; then
+				gofmt -l "$file"
+			fi
+		done
+)
+
+if [ -n "$unformatted" ]; then
+	{
+		echo "gofmt would reformat:"
+		echo "$unformatted"
+		echo
+		echo "Run 'make fmt' and stage the result."
+	} >&2
+	exit 1
+fi
