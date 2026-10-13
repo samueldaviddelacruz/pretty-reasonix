@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"strings"
+
+	"github.com/BurntSushi/toml"
 )
 
 // Flags are the settings a command line can override, and nothing more.
@@ -56,30 +59,92 @@ func Load(projectPath, userPath string, flags Flags) (*Config, []Warning, error)
 	cfg := Default()
 	var warnings []Warning
 
-	// Lowest priority first, so each file overwrites only what it names.
-	for _, source := range []string{userPath, projectPath} {
-		if source == "" {
+	// Lowest priority first, so each file overwrites only what it names. The
+	// project file is the higher layer, and the only one whose user-global
+	// settings are held back — keyed by position rather than by comparing paths,
+	// which would misfire for a caller that passed the same path twice.
+	layers := []struct {
+		path         string
+		maySetGlobal bool
+	}{
+		{userPath, true},
+		{projectPath, false},
+	}
+	for _, layer := range layers {
+		if layer.path == "" {
 			continue
 		}
-		body, err := os.ReadFile(source) //nolint:gosec // G304: the path is the layer this loader was told to read
+		body, err := os.ReadFile(layer.path)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		if err != nil {
-			return nil, nil, fmt.Errorf("reading configuration %s: %w", source, err)
+			return nil, nil, fmt.Errorf("reading configuration %s: %w", layer.path, err)
 		}
-		found, err := apply(cfg, body)
+		// The settings a project may not decide are captured before the decode
+		// and restored after it, so the value never reaches the caller at all.
+		before := *cfg
+		meta, found, err := apply(cfg, body)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s: %w", source, err)
+			return nil, nil, fmt.Errorf("%s: %w", layer.path, err)
+		}
+		if !layer.maySetGlobal {
+			found = append(found, holdBackUserGlobals(cfg, &before, meta)...)
 		}
 		for i := range found {
-			found[i].Source = source
+			found[i].Source = layer.path
 		}
 		warnings = append(warnings, found...)
 	}
 
 	flags.applyTo(cfg)
 	return cfg, warnings, nil
+}
+
+// UserGlobalKeys are the settings only the user's own configuration may decide.
+//
+// docs/TECHNICAL_DESIGN.md §6.11 marks these "user-global only", and the reason
+// is a security one rather than a tidy one: a cloned repository must not be able
+// to change how someone's editor behaves, or where their credentials live, by
+// committing a file.
+//
+// A project that names one is not an error. Refusing to start over a key the
+// project cannot control would be a worse outcome for the person running it, so
+// the value is held back and reported instead — see holdBackUserGlobals.
+//
+// The credential-path settings §6.11 also marks global-only arrive with E2-T5 and
+// join this list then; there is nothing to police yet.
+var UserGlobalKeys = []string{"ui.commandmode"}
+
+// holdBackUserGlobals restores every key the project named that it may not
+// decide, and reports each one.
+func holdBackUserGlobals(cfg, before *Config, meta toml.MetaData) []Warning {
+	var held []Warning
+	for _, key := range UserGlobalKeys {
+		if !meta.IsDefined(strings.Split(key, ".")...) {
+			continue
+		}
+		restoreUserGlobal(cfg, before, key)
+		held = append(held, Warning{
+			Key:  key,
+			Note: "only the user's configuration may set this; the project's value was ignored",
+		})
+	}
+	return held
+}
+
+// restoreUserGlobal puts back the value a key had before the project file was
+// read.
+//
+// It is an if rather than a switch while there is one key to restore, and
+// becomes a switch when E2-T5 adds the credential-path keys. What matters is that
+// the rule is enforced by the assertion in userglobal_test.go — "the project
+// changed nothing" — rather than by the warning appearing, so a key with no
+// branch here fails the test instead of passing quietly.
+func restoreUserGlobal(cfg, before *Config, key string) {
+	if key == "ui.commandmode" {
+		cfg.UI.CommandMode = before.UI.CommandMode
+	}
 }
 
 // Sources names the layers in the resolution order, lowest priority first, so
