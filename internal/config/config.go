@@ -211,6 +211,9 @@ type Plugin struct {
 // keys are warnings rather than errors so that a configuration written for a
 // later version still starts, minus what this one cannot understand.
 type Warning struct {
+	// Source names the layer the key came from: the file it was read from, or
+	// "flags". Empty when a caller parsed bytes without saying where from.
+	Source string
 	// Key is the dotted path of the ignored setting, e.g. "ui.theme_packs".
 	Key string
 	// Note says why it was ignored, in a form fit for `prx doctor`.
@@ -219,7 +222,10 @@ type Warning struct {
 
 // String renders the warning for a human reader.
 func (w Warning) String() string {
-	return w.Key + ": " + w.Note
+	if w.Source == "" {
+		return w.Key + ": " + w.Note
+	}
+	return w.Source + ": " + w.Key + ": " + w.Note
 }
 
 // Default returns the documented default configuration. Every value here is the
@@ -279,31 +285,44 @@ func Default() *Config {
 	}
 }
 
-// Parse decodes a configuration from TOML bytes.
+// Parse decodes a configuration from TOML bytes, starting from the defaults.
 //
-// The defaults are the starting point, so a file only has to name what it wants
-// to change. It reads bytes and never writes any, which is what makes it safe to
-// call on a file that may be malformed: nothing it does can alter what the user
-// wrote.
+// It reads bytes and never writes any, which is what makes it safe to call on a
+// file that may be malformed: nothing it does can alter what the user wrote.
 func Parse(body []byte) (*Config, []Warning, error) {
 	cfg := Default()
+	warnings, err := apply(cfg, body)
+	if err != nil {
+		return nil, nil, err
+	}
+	return cfg, warnings, nil
+}
+
+// unknownKeyNote is the reason attached to every key the schema did not
+// recognise.
+const unknownKeyNote = "this version does not use this setting; it was ignored rather than applied"
+
+// apply decodes body over an existing configuration, so that a key the file does
+// not mention keeps whatever the layers below it decided. This is what makes the
+// resolution order work at the decode step rather than by overlaying whole
+// structs, which would reinstate a higher layer's defaults over a lower layer's
+// real settings.
+func apply(cfg *Config, body []byte) ([]Warning, error) {
 	meta, err := toml.Decode(string(body), cfg)
 	if err != nil {
 		// Both errors stay matchable: a caller may want the sentinel, and a
 		// human wants the parser's position.
-		return nil, nil, errors.Join(ErrMalformed, fmt.Errorf("parsing configuration: %w", err))
+		return nil, errors.Join(ErrMalformed, fmt.Errorf("parsing configuration: %w", err))
 	}
-	if undecoded := undecodedKeys(meta); len(undecoded) > 0 {
-		warnings := make([]Warning, 0, len(undecoded))
-		for _, key := range undecoded {
-			warnings = append(warnings, Warning{
-				Key:  key.String(),
-				Note: "this version does not use this setting; it was ignored rather than applied",
-			})
-		}
-		return cfg, warnings, nil
+	undecoded := undecodedKeys(meta)
+	if len(undecoded) == 0 {
+		return nil, nil
 	}
-	return cfg, nil, nil
+	warnings := make([]Warning, 0, len(undecoded))
+	for _, key := range undecoded {
+		warnings = append(warnings, Warning{Key: key.String(), Note: unknownKeyNote})
+	}
+	return warnings, nil
 }
 
 // undecodedKeys lists what the file said and the schema did not recognise, in a
@@ -326,7 +345,14 @@ func LoadFile(path string) (*Config, []Warning, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading configuration %s: %w", path, err)
 	}
-	return Parse(body)
+	cfg, warnings, err := Parse(body)
+	if err != nil {
+		return nil, nil, err
+	}
+	for i := range warnings {
+		warnings[i].Source = path
+	}
+	return cfg, warnings, nil
 }
 
 // Save writes the configuration to path.
