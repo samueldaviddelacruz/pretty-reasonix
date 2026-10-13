@@ -234,6 +234,7 @@ pretty-reasonix/
 │   │   ├── tool/                      #   Tool + optional capability interfaces + Registry
 │   │   ├── permrule/                  #   Rule grammar (parse/format/match)
 │   │   └── event/                     #   the frontend event vocabulary (§6.4)
+│   ├── architecture/                  # the dependency-rule test (E1-T3); no production code
 │   ├── config/                        # TOML schema, defaults, resolution, paths, trust store
 │   ├── provider/
 │   │   ├── openai/                    #   kind="openai"   (chat completions, SSE)
@@ -281,7 +282,7 @@ Rules:
 - `termrender` imports no session state and no `agent` — it renders bytes from values, exactly like the reference's stateless renderer. This is what makes the TUI testable.
 - Nothing outside `frontend/*` writes to stdout/stderr or calls `os.Exit`; library code wraps errors with `%w` and returns.
 - `sandbox` and `perm` never import `agent`: the agent asks a `Gate`, and a `Sandbox.Spec` is data.
-- Ticket **E1-T3** adds `internal/arch_test.go` that fails on an import edge violating this graph.
+- Ticket **E1-T3** adds `internal/architecture/`, whose test fails on an import edge violating this graph *and* on a package that declares no layer, so the rule cannot silently lose coverage.
 - No package may be named `utils`, `common`, `base`, `helpers`, `misc`, `shared`, `types` or `consts`; `depguard` enforces it (rule [#13]).
 
 ### 6.3 Core contracts
@@ -899,7 +900,7 @@ Deliberate non-goals for tests: no golden full-screen frames (brittle), no netwo
 - `go vet ./...` clean, and `gofmt`/`goimports` clean — the formatters run inside the same gate.
 - `go test ./...` with `-race` on Linux and macOS for the **unit** tier. The `integration` and `e2e` tiers run with `-race` on a scheduled job rather than on every commit, because `-race` is expensive: this is the deliberate scheduling rule [#83] asks for, not an omission.
 - **The Go practice audit is part of the definition of done**, not an optional nicety. After writing or changing Go code, the two-tier protocol in [`GO-STANDARDS.md` §4](./GO-STANDARDS.md#4-the-audit-protocol) is run and its outcome recorded on the PR: tier 1 green, the relevant §6 groups walked, and every finding either fixed or accepted with a stated reason.
-- The **architecture test** (`internal/arch_test.go`) fails on an import edge that violates §6.2.
+- The **architecture test** (`internal/architecture/`) fails on an import edge that violates §6.2, on any import cycle, and on any package missing from its layer table.
 - The **contract test** regenerates the tool-contract documentation and fails on drift (§6.6).
 - The **keymap test** asserts every `Action` has a default binding, a help string and no conflicts (U1).
 - The **identity test** asserts that only `internal/config/identity.go` mentions the binary/home/project-file names (§3.1) — so flipping them is provably mechanical.

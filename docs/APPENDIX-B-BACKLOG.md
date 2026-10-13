@@ -97,7 +97,7 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
 - **E1-T2 · Makefile: build, cross, test, vet, fmt, lint** — `size:S` · deps: `E1-T1` · labels: `type:chore`, `area:core`, `milestone:m0`, `good-first-issue`
   - AC: `make cross` produces `dist/` for `darwin|linux × amd64|arm64` with `CGO_ENABLED=0 -trimpath`.
 - **E1-T3 · Architecture test enforcing the import graph** — `size:S` · deps: `E1-T1` · labels: `type:test`, `area:core`, `milestone:m0`
-  - AC: `internal/arch_test.go` parses imports and fails on any edge violating TDD §6.2 (e.g. `contract` importing a sibling, `termrender` importing `agent`).
+  - AC: the architecture test in `internal/architecture/` parses imports and fails on any edge violating TDD §6.2 (e.g. `contract` importing a sibling, `termrender` importing `agent`), on any import cycle, and on any package with no declared layer.
 - **E1-T4 · Dependency policy and review checklist** — `size:S` · deps: `E1-T1` · labels: `type:chore`, `area:core`, `milestone:m0`
   - AC: `docs/DEPENDENCIES.md` lists the approved set with a one-line justification each and requires pure-Go + `CGO_ENABLED=0` safety.
   - AC: `golang.org/x/sync` (errgroup, §E4-T5) and `go.uber.org/goleak` (§E20-T7) are recorded there with their reasons, since the practice baseline now requires both.
