@@ -204,9 +204,20 @@ func scan(t *testing.T) graph {
 			if !strings.HasPrefix(imported, modulePath+"/") {
 				continue
 			}
+			to := strings.TrimPrefix(imported, modulePath+"/")
+			// A package's own external test package — `package x_test`, importing the
+			// package beside it — is not a module dependency. The graph is keyed on
+			// directories, so that import looks exactly like a self-edge, and recording
+			// it as one fails the contract layer's "imports nothing else in the module"
+			// rule and the acyclicity check for the most ordinary arrangement in Go.
+			// The edge is dropped here, where the misreading happens, rather than
+			// exempted in each rule that would otherwise trip over it.
+			if to == from {
+				continue
+			}
 			edges = append(edges, edge{
 				from: from,
-				to:   strings.TrimPrefix(imported, modulePath+"/"),
+				to:   to,
 				file: path,
 				line: fset.Position(spec.Pos()).Line,
 			})
@@ -343,13 +354,9 @@ func TestModuleImportGraphIsAcyclic(t *testing.T) {
 
 	adjacency := make(map[string][]string, len(g.edges))
 	for _, e := range g.edges {
-		// A directory importing itself is not a cycle. Only a package's external
-		// test package can import the package beside it, and this graph keys on
-		// the directory, so counting it would report every _test package that
-		// imports the package under test — which is most of them.
-		if e.from == e.to {
-			continue
-		}
+		// No self-edge can reach here: scan drops them, because a package's own
+		// external test package is not a module dependency and the graph is keyed on
+		// directories. The comment there is the one place that is explained.
 		adjacency[e.from] = append(adjacency[e.from], e.to)
 	}
 
