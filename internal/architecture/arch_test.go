@@ -339,6 +339,13 @@ func TestModuleImportGraphIsAcyclic(t *testing.T) {
 
 	adjacency := make(map[string][]string, len(g.edges))
 	for _, e := range g.edges {
+		// A directory importing itself is not a cycle. Only a package's external
+		// test package can import the package beside it, and this graph keys on
+		// the directory, so counting it would report every _test package that
+		// imports the package under test — which is most of them.
+		if e.from == e.to {
+			continue
+		}
 		adjacency[e.from] = append(adjacency[e.from], e.to)
 	}
 
