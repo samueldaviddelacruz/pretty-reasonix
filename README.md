@@ -14,6 +14,7 @@ Inspired by the feature set of [Reasonix](https://github.com/esengine/DeepSeek-R
 | [`docs/APPENDIX-A-REASONIX-REFERENCE.md`](docs/APPENDIX-A-REASONIX-REFERENCE.md) | The exhaustive inventory of the reference system — features, architecture, on-disk formats, CLI surface, tool list — annotated with which epic covers each, and an honest list of where its UX falls short. |
 | [`docs/APPENDIX-B-BACKLOG.md`](docs/APPENDIX-B-BACKLOG.md) | The ticket backlog: 6 milestones, 22 epics, 161 v1 tickets with acceptance criteria, dependencies and sizes — plus a roadmap tier for everything deliberately deferred. |
 | [`docs/GO-STANDARDS.md`](docs/GO-STANDARDS.md) | How the rules in [`go-best-practices.md`](go-best-practices.md) are enforced: what `golangci-lint` decides, what the post-implementation audit decides, and where we deliberately diverge. |
+| [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md) | The dependency policy: the rule for admitting a module, the approved set with one reason each, what is deliberately refused, and the review checklist. |
 
 ## Status
 

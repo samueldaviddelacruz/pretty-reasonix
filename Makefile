@@ -1,6 +1,6 @@
 # Makefile for pretty-reasonix.
 #
-# Targets: build, cross, test, vet, fmt, lint, clean.
+# Targets: build, cross, pure-go, test, vet, fmt, lint, clean.
 #
 # Only `build` and `cross` write into the tree, and both write to directories
 # .gitignore covers (bin/ and dist/), so a build never leaves untracked output.
@@ -31,7 +31,7 @@ BUILDFLAGS := -trimpath
 # Overridable so a machine that keeps the linter outside PATH still works.
 GOLANGCI_LINT ?= golangci-lint
 
-.PHONY: build cross test vet fmt lint clean
+.PHONY: build cross pure-go test vet fmt lint clean
 
 # build compiles the binary for this machine into bin/.
 build:
@@ -49,11 +49,18 @@ cross:
 			-ldflags '$(LDFLAGS)' -o "$$out" ./cmd/prx; \
 	done
 
+# pure-go proves the whole module still builds with cgo disabled, which is what
+# makes the single static binary possible (docs/DEPENDENCIES.md). `build` only
+# covers ./cmd/prx, so a cgo-requiring module that nothing imports yet would
+# otherwise go unnoticed until it was wired in. CI runs this from E1-T6; the
+# target exists now so that ticket has one command to call.
+pure-go:
+	CGO_ENABLED=0 go build ./...
+
 # test runs the suite. The test tiers are build tags (docs/TECHNICAL_DESIGN.md
 # §7.1); untagged packages are the unit tier and run by default.
 test:
 	go test ./...
-
 # vet runs the standard analyzers.
 vet:
 	go vet ./...
