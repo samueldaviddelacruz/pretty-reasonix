@@ -16,7 +16,9 @@ var (
 	Date = "unknown"
 )
 
-// String returns the one-line version report printed by `prx version`.
+// String returns the build report, without the program's name: the caller knows
+// what the binary is called, and naming it here would make this package a second
+// owner of that string (E1-T8, internal/architecture/identity_test.go).
 func String() string {
-	return fmt.Sprintf("prx %s (commit %s, built %s)", Version, Commit, Date)
+	return fmt.Sprintf("%s (commit %s, built %s)", Version, Commit, Date)
 }

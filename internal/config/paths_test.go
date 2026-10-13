@@ -86,7 +86,7 @@ func TestLayoutModesAndPurposesAreSensible(t *testing.T) {
 		case !loc.Dir && loc.Mode.Perm()&0o111 != 0:
 			t.Errorf("%s is a file with execute bits set (%#o)", loc.Field, loc.Mode.Perm())
 		case loc.Purpose == "":
-			t.Errorf("%s has no purpose; `prx doctor` and a layout failure both need one", loc.Field)
+			t.Errorf("%s has no purpose; the doctor command and a layout failure both need one", loc.Field)
 		case strings.Contains(loc.Rel, ".."):
 			t.Errorf("%s resolves to %q, which escapes the home directory", loc.Field, loc.Rel)
 		}

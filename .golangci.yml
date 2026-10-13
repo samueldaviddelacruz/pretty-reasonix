@@ -166,7 +166,7 @@ linters:
         - pattern: '^os\.(Stdout|Stderr)$'
           msg: "only internal/frontend and cmd may write to the process streams (§6.2)"
         - pattern: '^os\.Exit$'
-          msg: "only cmd/prx and internal/frontend/cli decide exit codes (§6.2)"
+          msg: "only cmd/ and internal/frontend/cli decide exit codes (§6.2)"
         - pattern: '^panic$'
           msg: "return an error instead; panic is a cmd-level programmer error only [#48]"
         - pattern: '^log\.Fatal.*$'

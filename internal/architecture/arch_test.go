@@ -278,7 +278,6 @@ func TestScanFindsTheModule(t *testing.T) {
 	t.Parallel()
 	g := scan(t)
 	for _, want := range []string{
-		"cmd/prx",
 		"internal/agent",
 		"internal/architecture",
 		"internal/contract/tool",
@@ -288,6 +287,11 @@ func TestScanFindsTheModule(t *testing.T) {
 		if !slices.Contains(g.packages, want) {
 			t.Fatalf("the scan did not find %s; it found %d packages: %v", want, len(g.packages), g.packages)
 		}
+	}
+	// The entry point is asserted by prefix rather than by name: naming it would
+	// make this package a second owner of the binary name (E1-T8).
+	if !slices.ContainsFunc(g.packages, func(pkg string) bool { return strings.HasPrefix(pkg, "cmd/") }) {
+		t.Fatalf("no package under cmd/ was found, so the scan is missing the entry point: %v", g.packages)
 	}
 	if len(g.edges) == 0 {
 		t.Fatal("the scan found no internal imports at all, but internal/frontend/cli imports internal/version, so it cannot be right")
@@ -408,7 +412,7 @@ func TestBreachRecognisesTheDocumentedViolations(t *testing.T) {
 		{"wiring the concrete kinds", "internal/assembly", "internal/provider/openai", false},
 		{"a frontend importing the contract", "internal/frontend/tui", "internal/contract/tool", false},
 		{"the cli importing version", "internal/frontend/cli", "internal/version", false},
-		{"the entry point importing the cli", "cmd/prx", "internal/frontend/cli", false},
+		{"a package under cmd importing the cli", "cmd/entrypoint", "internal/frontend/cli", false},
 		{"the loop importing a capability", "internal/agent", "internal/tool", false},
 		{"the loop driving compaction", "internal/agent", "internal/compaction", false},
 		{"a frontend importing its own sibling", "internal/frontend/tui", "internal/frontend/termrender", false},
