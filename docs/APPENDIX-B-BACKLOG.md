@@ -559,6 +559,9 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
 - **E20-T8 · Table-driven suites for compaction** — `size:M` · deps: `E8-T2`, `E8-T3` · labels: `type:test`, `area:quality`, `milestone:m3`
   - AC: the acceptance rules (candidate ≤ 50 % of window, strictly smaller than source, below the trigger) and the keep-policy budgets (1500 tokens per turn, `min(8192, window × 5 %)` in total, oldest-first) have exhaustive table-driven cases including the boundary values that must **fail** acceptance.
   - AC: a test asserts that below the trigger nothing is written at all — no projection, no digest, no receipt.
+- **E20-T9 · Document-consistency test** — `size:S` · deps: `E1-T3` · labels: `type:test`, `area:quality`, `milestone:m0`
+  - AC: a tracked test fails when the backlog, the design's epic map and `README.md` disagree about how many tickets exist, when a reference names a ticket with no definition, or when a dependency points at a later milestone.
+  - AC: an epic whose tickets are not a contiguous `T1..Tn` sequence fails, and so does a ticket with no size or no acceptance criterion.
 
 ### E21 · Documentation and onboarding — M5
 
