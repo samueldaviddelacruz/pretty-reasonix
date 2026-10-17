@@ -127,13 +127,13 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
 - **E2-T3 · Resolution order and merge** — `size:M` · deps: `E2-T1` · labels: `type:feature`, `area:config`, `milestone:m0`
   - AC: `flags > ./prx.toml > ~/.prx/config.toml > defaults` with a table-driven test per section.
 - **E2-T4 · User-global-only keys** — `size:S` · deps: `E2-T3` · labels: `type:feature`, `area:config`, `risk:security`, `milestone:m0`
-  - AC: a project file cannot set credentials paths, `[ui].commandmode` or the equivalent global-only sections; attempted values are held and reported, never applied.
+  - AC: a project file cannot set `[ui].commandmode` or any other user-global-only setting; attempted values are held and reported, never applied. (Provider credential *variables* belong to E2-T5, which polices them by name — the schema has no credential-path key.)
 - **E2-T5 · Secret handling: `.env`, `api_key_env`, child-env scrubbing** — `size:M` · deps: `E2-T2` · labels: `type:feature`, `area:config`, `risk:security`, `milestone:m0`
   - AC: provider keys live only in `~/.prx/.env` at `0600`; the file is never printed; a test asserts a tool child process cannot see the variable.
   - AC: a `${VAR}` in a project `.env` expands for MCP/plugin settings but can never supply a provider key.
 - **E2-T6 · Narrow-only project keys** — `size:M` · deps: `E2-T3`, `E2-T4` · labels: `type:feature`, `area:config`, `risk:security`, `milestone:m0`
   - AC: a project may add `[permissions] deny`, add `forbid_read`, or restrict roots; a project that tries to widen them is ignored with an `IgnoredProjectSettings` notice listing the keys.
-  - AC: table-driven tests for each widen attempt (allow rules, network on, bash off, write roots, tool env).
+  - AC: table-driven tests for each widen attempt (allow rules, network on, bash off, write roots, and the tool surface; `[tools.shell].env` joins them when E6 adds a shell section).
 - **E2-T7 · Config warnings, quarantine and repair** — `size:M` · deps: `E2-T1`, `E2-T3` · labels: `type:feature`, `area:config`, `milestone:m0`
   - AC: `LoadWarnings()` is a first-class value surfaced by the TUI, `run`'s stderr and `prx doctor`.
   - AC: an unparseable config is quarantined with a `.bak` copy and the last-known-good is used, with one notice naming both paths.
@@ -159,7 +159,7 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
 - **E3-T7 · `kind = "responses"` (Responses API)** — `size:L` · deps: `E3-T4`, `E3-T8` · labels: `type:feature`, `area:provider`, `milestone:m0`
   - AC: stateless mode works; a `request_url` override is honoured and an override that merely repeats `base_url` is discarded.
 - **E3-T8 · Reasoning effort and vendor quirks** — `size:M` · deps: `E3-T1` · labels: `type:feature`, `area:provider`, `milestone:m0`
-  - AC: `--effort` and per-model `supported_efforts`/`default_effort` resolve to the correct wire field per vendor; an unsupported effort is reported, not silently dropped.
+  - AC: `--effort` and per-model `supported_efforts`/`default_effort` resolve to one effective level before the request is built, and an unsupported effort is reported rather than silently dropped; each kind maps that level onto its own wire field (E3-T5/T6/T7).
 - **E3-T9 · Usage and cache accounting** — `size:M` · deps: `E3-T5`, `E3-T6` · labels: `type:feature`, `area:provider`, `milestone:m0`
   - AC: cache hit/miss/write tokens, reasoning tokens and `finish_reason` are captured per request and reported per turn.
   - AC: a `finish_reason=length` truncation is classified and surfaced, and a per-turn output ceiling is clipped at send time against the remaining window without changing the compaction trigger.
@@ -618,6 +618,7 @@ M0's critical path, in dependency order — a shippable walking skeleton in one 
 6. **The parity matrix is the definition of "done with the reference".** When a ticket closes, its Appendix A row (or the epic's row) is annotated as covered; an unaccounted row at M5 is a blocking bug.
 7. **Every Go change carries a practice audit.** `golangci-lint run` green, the relevant groups of [`GO-STANDARDS.md` §6](./GO-STANDARDS.md#6-audit-checklist-human-decided) walked, and every finding either fixed or accepted with a stated reason — recorded on the PR, not in a chat thread.
 8. **A `//nolint` names its reason; a divergence names its rule.** A directive without an explanation fails review (`nolintlint` enforces the first half), and an intentional departure from a baseline rule needs a row in `GO-STANDARDS.md` §7.
+9. **An AC names only what its milestone already has.** A criterion leaning on an artefact a later ticket creates must say so, and must be closable on the part this ticket owns. Three M0 criteria named things that did not exist — credential paths, `[tools.shell].env`, a per-vendor wire field — and each cost a paragraph of explanation at review time instead of being checkable.
 
 ---
 
