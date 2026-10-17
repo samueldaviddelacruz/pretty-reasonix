@@ -55,8 +55,13 @@ func fullConfig() *config.Config {
 			RequestURL:         "https://example.test/v1/chat",
 			MaxOutputTokens:    4096,
 			IdleTimeoutSeconds: 42,
-			ModelOverrides:     map[string]config.ModelOverride{"m1": {ContextWindow: 64, MaxOutputTokens: 8}},
-			Prices:             map[string]config.Price{"m1": {Input: 1, Output: 2, CacheHit: 0.5, Currency: "USD"}},
+			ModelOverrides: map[string]config.ModelOverride{"m1": {
+				ContextWindow:    64,
+				MaxOutputTokens:  8,
+				SupportedEfforts: []string{"low", "high"},
+				DefaultEffort:    "high",
+			}},
+			Prices: map[string]config.Price{"m1": {Input: 1, Output: 2, CacheHit: 0.5, Currency: "USD"}},
 		}},
 		Tools: config.Tools{
 			Enabled:                  []string{"read_file"},

@@ -81,6 +81,9 @@ type Request struct {
 	// field where it changes what the model does.
 	Temperature float64 `json:"temperature"`
 	MaxTokens   int     `json:"max_tokens,omitempty"`
+	// Effort asks the model to think harder or less hard. Unset leaves the choice to the vendor,
+	// and which effort a session ends up with is resolved by internal/model before it gets here.
+	Effort Effort `json:"effort,omitempty"`
 }
 
 // ChunkKind is what one piece of a streamed completion is.
