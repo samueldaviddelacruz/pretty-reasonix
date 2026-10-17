@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Config is what a factory is given to build one configured provider.
@@ -22,6 +23,9 @@ type Config struct {
 	BaseURL string
 	// Model is the model this provider is configured for.
 	Model string
+	// IdleTimeout bounds how long a request may go without an answer, which is a provider entry's
+	// idle_timeout_seconds. Zero means the transport's default.
+	IdleTimeout time.Duration
 	// APIKey resolves the credential. It may be nil, and it may return an empty
 	// string; a kind reports either as a configuration error rather than sending a
 	// request the vendor will reject, because "you have not configured a key" is a
