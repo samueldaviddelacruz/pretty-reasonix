@@ -27,6 +27,9 @@ const (
 	// question. It matches the reference implementation's idle timeout, and a provider
 	// entry can set idle_timeout_seconds (TDD §6.11) for a vendor that differs.
 	managedResponseHeaderTimeout = 300 * time.Second
+	// managedStreamIdleTimeout is how long an open event stream may go silent before it is read
+	// as dropped. It is the same idle_timeout_seconds a provider entry configures.
+	managedStreamIdleTimeout = 300 * time.Second
 	// maxErrorBodyBytes bounds how much of a failed response is read for its message.
 	maxErrorBodyBytes = 8 << 10
 	// drainLimit bounds what is read from a response being discarded, so that a small one
@@ -47,6 +50,9 @@ type Config struct {
 	// ResponseHeaderTimeout overrides the managed wait for headers, which is where a
 	// provider entry's idle_timeout_seconds lands.
 	ResponseHeaderTimeout time.Duration
+	// StreamIdleTimeout bounds how long an event stream may go silent before it is read as
+	// dropped. Zero means the default of 300s, and it is the same idle_timeout_seconds.
+	StreamIdleTimeout time.Duration
 	// Retry is the backoff policy. Nil means DefaultRetryPolicy. It is a pointer so that
 	// there is no partially-filled policy to interpret: a caller who wants three attempts
 	// starts from DefaultRetryPolicy and changes the field.
@@ -58,9 +64,10 @@ type Config struct {
 
 // Client performs outbound HTTP with bounded retry.
 type Client struct {
-	http  *http.Client
-	retry RetryPolicy
-	sleep func(context.Context, time.Duration) error
+	http       *http.Client
+	retry      RetryPolicy
+	sleep      func(context.Context, time.Duration) error
+	streamIdle time.Duration
 }
 
 // New builds a client.
@@ -76,14 +83,18 @@ func New(cfg Config) *Client {
 			// response body, and callers read a stream of tokens that can take minutes. The
 			// phase timeouts and the caller's context are what bound it.
 		},
-		retry: DefaultRetryPolicy(),
-		sleep: sleepUntil,
+		retry:      DefaultRetryPolicy(),
+		sleep:      sleepUntil,
+		streamIdle: managedStreamIdleTimeout,
 	}
 	if cfg.Retry != nil {
 		client.retry = *cfg.Retry
 	}
 	if cfg.Sleep != nil {
 		client.sleep = cfg.Sleep
+	}
+	if cfg.StreamIdleTimeout > 0 {
+		client.streamIdle = cfg.StreamIdleTimeout
 	}
 	return client
 }
@@ -127,7 +138,7 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 		// the user's own configuration, and a tool that fetches a model-supplied URL (E7's
 		// web_fetch) is where an allowlist belongs. Putting a host check here would be the
 		// wrong layer and would be trivially bypassed by the next caller.
-		resp, err := c.http.Do(req) //nolint:gosec // G704: the destination is the caller's configuration, checked where it is read
+		resp, err := c.http.Do(req)
 		if err != nil {
 			if attempt >= c.retry.MaxAttempts || !Retryable(err) {
 				return nil, fmt.Errorf("%s %s: %w", req.Method, req.URL, err)
