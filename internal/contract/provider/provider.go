@@ -113,17 +113,11 @@ const (
 	ChunkError
 )
 
-// Chunk is one piece of a streamed completion.
+// Chunk is one piece of a streamed completion. Errors travel in it rather than only through
+// Stream's error return, which was consumed at call time — so a failure after the first token has
+// nowhere else to go, and a truncated answer would be silent.
 //
-// Errs travel in the stream rather than only through Stream's error return, because
-// that return was consumed when the call returned: a failure after the first token —
-// a dropped connection mid-sentence — has nowhere else to go, and a silently truncated
-// answer is the worst outcome available.
-//
-// A Chunk is not JSON, and deliberately so. Chunks are handed to the loop inside this
-// process (TDD §5.2 declined the HTTP-plus-SSE kernel), so there is no boundary for
-// them to cross; the durable record of a turn is the event log, not the stream that
-// produced it.
+// It is not JSON: chunks never leave this process, and the event log is the durable record.
 type Chunk struct {
 	Kind     ChunkKind
 	Text     string
@@ -154,16 +148,12 @@ type Usage struct {
 
 // Provider is one configured way of talking to a model.
 type Provider interface {
-	// Name is the provider entry's own name, for diagnostics and for telling two
-	// entries apart, not a value that reaches the wire.
+	// Name is the provider entry's own name, for diagnostics, not a value that reaches the wire.
 	Name() string
 	// Stream starts a completion and returns the chunks as they arrive.
 	//
-	// The implementation closes the returned channel when the stream ends, whether it
-	// succeeded or failed; the caller must not. Cancelling ctx aborts the request.
-	//
-	// An error is returned only for a failure *before* the stream began — a refused
-	// connection, a key the vendor rejects — because after the first chunk the caller
-	// is already reading, so later failures arrive as a ChunkError.
+	// The implementation closes the returned channel when the stream ends, success or failure; the
+	// caller must not. An error is returned only for a failure before the stream began — after the
+	// first chunk the caller is already reading, so later failures arrive as a ChunkError.
 	Stream(ctx context.Context, req Request) (<-chan Chunk, error)
 }

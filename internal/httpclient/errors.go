@@ -10,23 +10,16 @@ import (
 	"time"
 )
 
-// ErrUnrepeatable reports a request that cannot be sent again, which is a request with
-// a body and no way to recreate it. It is a sentinel because the loop has to tell this
-// apart from a transport failure: one means "the network is having a moment", and the
-// other means "retrying would ask a different question".
+// ErrUnrepeatable reports a request that cannot be sent again — a body with no way to recreate
+// it. A sentinel because retrying that would ask a different question, not a transport blip.
 var ErrUnrepeatable = errors.New("the request body cannot be re-sent")
 
 // StatusError is a response the server returned instead of an answer.
 //
-// It carries the facts a caller decides with — the status, whether another attempt is
-// worth making, and how long the server asked us to wait — rather than a finished
-// sentence, because the caller that retries is not the caller that explains. TDD §6.4
-// keeps the loop's policy and the frontend's wording apart, and this type is where that
-// split is enforced: everything here is a fact, and every message is built from them at
-// the point somebody reads it.
+// It carries facts — status, retryability, how long to wait — rather than a sentence, because the
+// caller that retries is not the caller that explains.
 type StatusError struct {
-	// Method and URL say what was requested, so a caller does not have to annotate every
-	// wrap site to get a message that identifies the call.
+	// Method and URL identify the call, so every wrap site does not have to.
 	Method string
 	URL    string
 	// Code is the HTTP status and Status its standard text.
@@ -34,12 +27,10 @@ type StatusError struct {
 	Status string
 	// Retryable reports whether this status is one another attempt can plausibly fix.
 	Retryable bool
-	// RetryAfter is what the server asked for, already clamped by the policy's ceiling;
-	// zero when it asked for nothing.
+	// RetryAfter is what the server asked for, clamped to the ceiling; zero when it asked for nothing.
 	RetryAfter time.Duration
-	// Body is a bounded prefix of the response, because a vendor's explanation is
-	// usually in it and because reading an error page without a limit is its own
-	// failure mode.
+	// Body is a bounded prefix of the response: a vendor's explanation is usually in it, and an
+	// unbounded read is its own failure mode.
 	Body string
 }
 
@@ -53,14 +44,9 @@ func (e *StatusError) Error() string {
 	return fmt.Sprintf("%s %s: %s%s", e.Method, e.URL, e.Status, detail)
 }
 
-// Retryable reports whether an error is worth another attempt, so that a caller — the
-// turn loop, offering the user a retry rather than a stack trace — can decide without
-// parsing a message.
-//
-// It covers this package's own errors and the transport failures net/http reports. The
-// judgement is about what repeating the request would change: a 5xx is the server saying
-// "not now", a refused or reset connection is the network saying the same, and a 401 is
-// the credential saying no, which asking again will not alter.
+// Retryable reports whether an error is worth another attempt, so a caller can decide without
+// parsing a message: a 5xx is the server saying "not now", a refused connection is the network
+// saying the same, and a 401 is the credential saying no.
 func Retryable(err error) bool {
 	if err == nil {
 		return false

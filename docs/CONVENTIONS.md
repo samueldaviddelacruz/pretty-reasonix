@@ -46,6 +46,25 @@ its criteria, was it checked, and what did it cost.
   the point of asking every time is that the answer is a claim someone can check
   against `go.mod`.
 
+## Comments
+
+A comment earns its place by explaining something the code does not already show: the
+reason, the constraint, the non-obvious behaviour. It earns nothing by describing the
+line beneath it.
+
+Keep it to **one line, two at most** — a second only when it carries a new fact. Leave out
+the reasoning chain, the ticket number and the section reference: the argument belongs in
+the pull request that made the change and in `TECHNICAL_DESIGN.md`, and a comment that
+retells it is maintenance nobody asked for.
+
+What survives any trimming is the design decision the code cannot express — why a field is
+a resolver rather than a value, why a comparison runs backwards, why a failure refuses to
+proceed — plus whatever `golangci-lint` demands: `godot` wants the full stop, `revive`
+wants the first line to open with the symbol name, and every `//nolint` needs its reason.
+
+Package documentation is the one exception. A `doc.go` states what the package owns and
+what it must not do, which is a page rather than a note.
+
 ## Hooks
 
 [`.githooks/pre-commit`](../.githooks/pre-commit) checks formatting on the staged

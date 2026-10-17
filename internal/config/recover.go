@@ -64,19 +64,13 @@ func KeepGood(path string) error {
 	return writeOwnerOnly(LastGoodPath(path), body)
 }
 
-// LoadUserRecovering reads the user's own configuration and recovers rather than
-// failing when it cannot be parsed.
+// LoadUserRecovering reads the user's own configuration, recovering rather than failing.
 //
-// This is deliberately not what Load does for a *project* file. A file in a
-// repository is committed and its author can fix it, so failing loudly is the useful
-// answer — and quarantining it would mean writing into somebody's working tree. The
-// user's own file is the one a person hand-edits at midnight, so it is moved aside
-// rather than left to block every command until they find the typo.
-//
-// On a malformed file: it is copied to QuarantinePath, the last good snapshot is used
-// if there is one and the built-in defaults otherwise, and a single notice names both
-// paths. If the copy itself fails the parse error is returned instead, because
-// recovering without preserving what the user wrote would destroy it.
+// A malformed file is copied to QuarantinePath, the last good snapshot is used if there is
+// one and the defaults otherwise, and one notice names both paths. A failing copy returns
+// the parse error instead: recovering without preserving what the user wrote destroys it.
+// Project files are never treated this way — they are committed, and quarantining one would
+// write into somebody's working tree.
 func LoadUserRecovering(path string) (*Recovery, error) {
 	if path == "" {
 		return &Recovery{Config: Default()}, nil
@@ -120,14 +114,10 @@ func LoadUserRecovering(path string) (*Recovery, error) {
 	return recovered, nil
 }
 
-// RenderNotices writes every notice a load produced, one per line, in the form each
-// surface shows it: the TUI in its notice area, `run` on stderr, `prx doctor` in its
-// report. One renderer rather than three, because a notice the user can meet in two
-// places should not read differently in each.
-//
-// Refusals come first and carry their own prefix. A key this version does not act on
-// is a compatibility matter; a project asking for a permission it may not have is the
-// kind of line somebody should notice.
+// RenderNotices writes every notice a load produced, one per line, in the form every surface shows
+// it. One renderer rather than three, because a notice a user meets in two places should not read
+// differently in each. Refusals come first: a stale key is a compatibility matter, while a project
+// asking for a permission it may not have is the line somebody should notice.
 func RenderNotices(w io.Writer, warnings []Warning, ignored IgnoredProjectSettings) error {
 	for _, refused := range ignored {
 		if _, err := fmt.Fprintf(w, "not applied: %s\n", refused); err != nil {
@@ -142,15 +132,11 @@ func RenderNotices(w io.Writer, warnings []Warning, ignored IgnoredProjectSettin
 	return nil
 }
 
-// writeOwnerOnly writes a copy of a configuration beside another file, owner-only
-// because the file may name an api_key_env and a copy deserves the permission the
-// original has.
+// writeOwnerOnly writes a copy of a configuration beside another, owner-only since the original may
+// name an api_key_env.
 //
-// The path is the caller's own configuration file — resolved by this package from
-// the home directory or PRX_HOME, never from anything a project, a server or a model
-// supplies — and the write target is that path plus a fixed suffix. G703 reads the
-// derivation as traversal because it cannot see where the path came from, which is
-// why it is suppressed here with the reason rather than worked around.
+// G703 reads the derived path as traversal because it cannot see where it came from: the path is the
+// caller's own configuration file plus a fixed suffix, never anything a project or a model supplies.
 func writeOwnerOnly(path string, body []byte) error {
 	if err := os.WriteFile(path, body, 0o600); err != nil { //nolint:gosec // G703: the caller's own configuration file plus a fixed suffix
 		return fmt.Errorf("writing %s: %w", path, err)
