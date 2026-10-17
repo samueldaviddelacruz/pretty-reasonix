@@ -54,32 +54,21 @@ type Result struct {
 	Ignored IgnoredProjectSettings
 }
 
-// Load resolves the configuration from the four sources, in the order fixed by
-// docs/TECHNICAL_DESIGN.md §6.11:
+// Load resolves the configuration in the order §6.11 fixes:
 //
 //	flags > ./prx.toml > <home>/config.toml > built-in defaults
 //
-// The two files are decoded into one configuration from the bottom up — defaults
-// first, then the user file, then the project file — so a key a later file does not
-// mention keeps what an earlier one decided. Overlaying whole structs instead would
-// reinstate the higher layer's *defaults* over the lower layer's real settings,
-// which is the bug this shape exists to avoid.
-//
-// What a project may not decide is captured before its file is decoded and put back
-// after it, so a refused value never reaches the caller at all: see
-// holdBackUserGlobals and holdBackWidenings, both reported in Result.Ignored.
-//
-// A missing file is ordinary: a first run has no user configuration, and a project
-// without one is the common case. A file that cannot be parsed is not, and is
-// reported with the path that failed rather than silently skipped.
+// The files decode into one configuration bottom-up, so a key a later file omits keeps
+// what an earlier one decided; overlaying whole structs would put the higher layer's
+// defaults over the lower layer's real settings. A missing file is ordinary, an
+// unparseable one is reported with its path, and anything a project may not decide is
+// put back before returning and reported in Result.Ignored.
 func Load(projectPath, userPath string, flags Flags) (*Result, error) {
 	cfg := Default()
 	result := &Result{Config: cfg}
 
-	// Lowest priority first, so each file overwrites only what it names. The project
-	// file is the higher layer and the only one whose settings are held back —
-	// keyed by position rather than by comparing paths, which would misfire for a
-	// caller that passed the same path twice.
+	// Lowest priority first. The project layer is the only one held back; keying that on
+	// position rather than on comparing paths avoids misfiring when both are the same.
 	layers := []struct {
 		path    string
 		project bool
@@ -98,8 +87,7 @@ func Load(projectPath, userPath string, flags Flags) (*Result, error) {
 		if err != nil {
 			return nil, fmt.Errorf("reading configuration %s: %w", layer.path, err)
 		}
-		// The settings a project may not decide are captured before the decode and
-		// put back after it.
+		// Captured before the decode and put back after it.
 		before := *cfg
 		meta, found, err := apply(cfg, body)
 		if err != nil {
@@ -121,22 +109,11 @@ func Load(projectPath, userPath string, flags Flags) (*Result, error) {
 	return result, nil
 }
 
-// UserGlobalKeys are the settings only the user's own configuration may decide.
+// UserGlobalKeys are the settings only the user's own configuration may decide: a cloned
+// repository must not change how someone's editor behaves by committing a file.
 //
-// docs/TECHNICAL_DESIGN.md §6.11 marks these "user-global only", and the reason is
-// a security one rather than a tidy one: a cloned repository must not be able to
-// change how someone's editor behaves by committing a file.
-//
-// A project that names one is not an error. Refusing to start over a key the project
-// cannot control would be a worse outcome for the person running it, so the value is
-// held back and reported instead — see holdBackUserGlobals, and restoreKey for where
-// each key is put back.
-//
-// E2-T4 recorded that the credential-path settings §6.11 also marks global-only
-// would join this list. They have not, because they turned out not to exist as
-// settings: E2-T5 found that what a project must not supply is a credential
-// *variable*, and that is policed by name in secrets.go rather than by a
-// configuration key here.
+// A project naming one is not an error — the value is put back and reported in
+// Result.Ignored rather than refusing to start.
 var UserGlobalKeys = []string{"ui.commandmode"}
 
 // Sources names the layers in the resolution order, lowest priority first, so

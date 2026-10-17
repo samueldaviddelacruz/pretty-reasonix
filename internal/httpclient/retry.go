@@ -84,14 +84,9 @@ func fullJitter(delay time.Duration) time.Duration {
 	return time.Duration(rand.Int64N(int64(delay))) //nolint:gosec // G404: a retry delay is not a secret
 }
 
-// RetryableStatus reports whether a status is one that another attempt can plausibly
-// fix.
-//
-// The set is deliberately narrow. 408 is the server having timed out waiting for us, 429
-// is it asking us to slow down, and 5xx is it having failed. Every 4xx that means "your
-// request or your credential is wrong" is excluded, because repeating it produces the
-// same answer and costs the same tokens — and on a metered provider, retrying a request
-// that was rejected on its merits is a way to pay repeatedly for one mistake.
+// RetryableStatus reports whether another attempt can plausibly fix a status: 408, 429 and
+// 5xx only. A 4xx meaning the request or the credential is wrong answers the same way again,
+// and on a metered provider bills the same tokens for the privilege.
 func RetryableStatus(code int) bool {
 	switch {
 	case code == http.StatusRequestTimeout, code == http.StatusTooManyRequests:
@@ -103,17 +98,13 @@ func RetryableStatus(code int) bool {
 	}
 }
 
-// retryAfter reads what a server asked us to wait.
+// retryAfter reads what a server asked us to wait. The seconds form is used as given; the
+// HTTP-date form is measured against the response's own Date header rather than this
+// machine's clock, since the instant the server means is its own — so a wrong clock reads it
+// correctly, and a test can pin it without moving time.
 //
-// The seconds form is used as given. The HTTP-date form is measured against the
-// response's own Date header rather than this machine's clock, which is both more
-// correct and simpler: the server is saying "not before this instant", and the instant it
-// means is its own, so a client whose clock is wrong reads it exactly as intended — and
-// a test can pin it without being able to move time.
-//
-// A response with no Date header, or one that cannot be read, yields zero: we did not
-// understand the instruction, and inventing one is worse than falling back to the
-// ladder.
+// No Date header, or an unreadable value, yields zero: we did not understand the
+// instruction, and inventing one is worse than falling back to the ladder.
 func retryAfter(resp *http.Response) time.Duration {
 	value := resp.Header.Get("Retry-After")
 	if value == "" {

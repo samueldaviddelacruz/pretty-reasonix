@@ -72,14 +72,9 @@ func New(cfg Config) *Client {
 	client := &Client{
 		http: &http.Client{
 			Transport: managedTransport(cfg),
-			// No overall Timeout, and that is a deliberate divergence from rule [#81]
-			// rather than an oversight. http.Client.Timeout covers reading the response
-			// body, and this client's callers read a stream of tokens that can legitimately
-			// take minutes, so an overall deadline would cut a good answer in half.
-			// [#81]'s actual complaint — that no phase may wait forever — is met by the
-			// transport's dial, handshake and header timeouts, by the stream idle watchdog
-			// E3-T4 adds for the body, and by the caller's context. Recorded in
-			// docs/GO-STANDARDS.md §7.
+			// No overall Timeout, deliberately (GO-STANDARDS §7): it covers reading the
+			// response body, and callers read a stream of tokens that can take minutes. The
+			// phase timeouts and the caller's context are what bound it.
 		},
 		retry: DefaultRetryPolicy(),
 		sleep: sleepUntil,
@@ -101,25 +96,19 @@ func New(cfg Config) *Client {
 // where the retry policy lives.
 func (c *Client) HTTPClient() *http.Client { return c.http }
 
-// Do performs the request, retrying the phases this package owns.
+// Do performs the request, retrying the connection and the response headers only.
 //
-// Only the connection and the response headers are retried. Once a response is accepted
-// its body belongs to the caller — for a completion that body is a stream of tokens — and
-// re-sending after tokens have been delivered would duplicate what the user has already
-// read. A body that fails mid-read is E3-T4's StreamInterruptedError, which the loop
-// decides about with the user's context in hand.
-//
-// The caller owns the returned response's body and must close it.
+// Once a response is accepted its body belongs to the caller — for a completion that is a
+// stream of tokens, and re-sending after tokens were delivered would duplicate what the user
+// read. A mid-read failure is StreamInterruptedError, which the loop decides about with the
+// user's context in hand. The caller closes the returned body.
 func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, error) {
-	// The context the caller passed governs, rather than whatever the request was built
-	// with: net/http reads the *request's* context, so a caller supplying one here while the
-	// request carried another would be a cancellation that silently did nothing.
+	// The caller's context governs: net/http reads the request's own, so passing one here
+	// while the request carried another would be a cancellation that silently did nothing.
 	req = req.WithContext(ctx)
 
-	// Whether the request can be sent again is settled once, before the first attempt.
-	// It cannot be settled later: net/http clears Request.Body once it has sent it, so a
-	// request that had a body with no way to recreate it would look bodyless, and the
-	// retry would arrive at the server asking a different question.
+	// Settled before the first attempt: net/http clears Body after sending, so a later check
+	// cannot tell "no body" from "cannot resend".
 	repeatable := req.GetBody != nil
 	hadBody := req.Body != nil && req.Body != http.NoBody
 
@@ -221,14 +210,9 @@ func managedTransport(cfg Config) *http.Transport {
 	return transport
 }
 
-// defaultTransport returns net/http's default transport, or a fresh one if a program has
-// replaced it with something that is not a *http.Transport.
-//
-// The check is not paranoia: a type assertion on a package-level variable is a panic
-// waiting for the one program that assigns to it, and rule [#48] keeps panics out of
-// library code — the panic a failed assertion causes included. The fresh transport names
-// the proxy function explicitly, because a transport built without one silently ignores
-// HTTPS_PROXY.
+// defaultTransport returns net/http's default transport, or a fresh one if a program has replaced
+// it — an assertion on a package-level variable is a panic waiting for whoever assigns to it. The
+// fresh transport names the proxy function, since one built without it ignores HTTPS_PROXY.
 func defaultTransport() *http.Transport {
 	if transport, ok := http.DefaultTransport.(*http.Transport); ok {
 		return transport
@@ -236,10 +220,8 @@ func defaultTransport() *http.Transport {
 	return &http.Transport{Proxy: http.ProxyFromEnvironment}
 }
 
-// rewind restores a request body so it can be sent again.
-//
-// A GetBody of nil is a request with no body here: Do has already refused to retry a
-// request that had one and cannot recreate it.
+// rewind restores a request body for the next attempt. A nil GetBody means no body: Do has already
+// refused to retry one that cannot be recreated.
 func rewind(req *http.Request) error {
 	if req.GetBody == nil {
 		return nil

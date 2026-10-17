@@ -302,15 +302,10 @@ func Parse(body []byte) (*Config, []Warning, error) {
 // recognise.
 const unknownKeyNote = "this version does not use this setting; it was ignored rather than applied"
 
-// apply decodes body over an existing configuration, so that a key the file does
-// not mention keeps whatever the layers below it decided. This is what makes the
-// resolution order work at the decode step rather than by overlaying whole
-// structs, which would reinstate a higher layer's defaults over a lower layer's
-// real settings.
-// It also returns the TOML metadata, because which keys a file *named* is not
-// recoverable from the merged struct: a caller enforcing the user-global-only
-// rules (E2-T4) has to ask whether this file defined a key, not what the value
-// ended up being.
+// apply decodes body over an existing configuration, so a key the file omits keeps what the layers
+// below decided — that is what makes the resolution order work at the decode step rather than by
+// overlaying structs. It also returns the TOML metadata, because which keys a file *named* is not
+// recoverable from the merged struct.
 func apply(cfg *Config, body []byte) (toml.MetaData, []Warning, error) {
 	meta, err := toml.Decode(string(body), cfg)
 	if err != nil {

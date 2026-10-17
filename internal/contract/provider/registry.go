@@ -10,20 +10,15 @@ import (
 
 // Config is what a factory is given to build one configured provider.
 //
-// It carries no credential value, and that is the point of its shape. APIKey is a
-// resolver rather than a string, because a string field here would be printed by the
-// first %v somebody adds to a log line or a diagnostic, and it would also be captured
-// when the provider is built — so a key the user rotates would not take effect until
-// the next restart. Resolving at request time costs one call and removes both
-// problems, and the function the assembly supplies closes over the same Secret type
-// that redacts everywhere else (internal/config), so the value's only way out remains
-// an explicit Reveal.
+// It holds no credential value: APIKey is a resolver, because a string field would be
+// printed by the first %v somebody adds to a log line, and would be captured when the
+// provider is built — so a rotated key would wait for a restart. The closure the assembly
+// supplies reads through config.Secret, so Reveal stays the only way out.
 type Config struct {
-	// Name is the provider entry's name from configuration, which becomes
-	// Provider.Name().
+	// Name is the provider entry's name from configuration, which becomes Provider.Name().
 	Name string
-	// BaseURL is the root of the vendor's API. A kind appends its own path, because
-	// the path is the one part of the URL a vendor owns.
+	// BaseURL is the root of the vendor's API. A kind appends its own path, because the path
+	// is the one part of the URL a vendor owns.
 	BaseURL string
 	// Model is the model this provider is configured for.
 	Model string
@@ -34,11 +29,8 @@ type Config struct {
 	APIKey func() string
 }
 
-// Factory builds one configured provider.
-//
-// It returns an error rather than panicking for anything it cannot reconcile — a base
-// URL it cannot parse, a missing credential — because its input comes from a
-// configuration file, and user input is not an exceptional condition.
+// Factory builds one configured provider. It returns an error rather than panicking for
+// anything it cannot reconcile, because its input is a configuration file.
 type Factory func(Config) (Provider, error)
 
 var (
@@ -46,16 +38,13 @@ var (
 	ErrDuplicateKind = errors.New("provider kind already registered")
 	// ErrUnknownKind reports a kind nothing registered.
 	ErrUnknownKind = errors.New("unknown provider kind")
-	// ErrNoFactory reports a factory that produced nothing and no error, which is a
-	// programming mistake in the kind rather than in the caller's configuration.
+	// ErrNoFactory reports a factory that produced nothing and no error — a mistake in the kind.
 	ErrNoFactory = errors.New("factory produced no provider")
 )
 
-// kindRegistry maps a kind to the factory that builds it.
-//
-// A mutex rather than a bare map because Register happens at boot while New and Kinds
-// are called from wherever a session is assembled, and a concurrent map read during a
-// write is a panic rather than a wrong answer.
+// kindRegistry maps a kind to the factory that builds it. The mutex is correctness: Register
+// runs at boot while New and Kinds run whenever a session is assembled, and a concurrent map
+// read during a write is a panic.
 type kindRegistry struct {
 	mu        sync.RWMutex
 	factories map[string]Factory
@@ -70,18 +59,11 @@ type kindRegistry struct {
 // list.
 var kinds = &kindRegistry{factories: map[string]Factory{}}
 
-// Register teaches the program how to build one kind of provider.
+// Register teaches the program how to build one kind of provider. Only internal/assembly calls
+// it, which a test enforces: a kind registering itself from an init() would make the available
+// providers depend on which packages a build linked.
 //
-// It is called from internal/assembly and nowhere else (rule [#3], enforced by a test
-// in internal/architecture): a kind that registered itself from an init() would make
-// the set of available providers depend on which packages happened to be imported,
-// which is the invisible coupling the explicit call site exists to avoid.
-//
-// A duplicate kind is an error rather than a panic (rule [#48]). The distinction earns
-// its keep at boot: two entries claiming one kind is a configuration mistake to report
-// and fix, and a panic in its place turns a message into a crash report. The same goes
-// for a nameless kind or a missing factory — the mistake is made here, so it is
-// reported here rather than as a nil dereference later.
+// A duplicate kind, a nameless kind or a missing factory is an error, not a panic.
 func Register(kind string, f Factory) error {
 	if kind == "" {
 		return errors.New("a provider kind needs a name")
