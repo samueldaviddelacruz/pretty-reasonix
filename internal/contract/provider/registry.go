@@ -26,6 +26,10 @@ type Config struct {
 	// IdleTimeout bounds how long a request may go without an answer, which is a provider entry's
 	// idle_timeout_seconds. Zero means the transport's default.
 	IdleTimeout time.Duration
+	// PromptCache says the vendor accepts ephemeral cache-control breakpoints. Sending them to a
+	// vendor that does not implement the field is a rejected request rather than a no-op, so this
+	// is a capability fact and not a preference.
+	PromptCache bool
 	// APIKey resolves the credential. It may be nil, and it may return an empty
 	// string; a kind reports either as a configuration error rather than sending a
 	// request the vendor will reject, because "you have not configured a key" is a
