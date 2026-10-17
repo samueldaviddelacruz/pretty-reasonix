@@ -119,6 +119,13 @@ type Provider struct {
 type ModelOverride struct {
 	ContextWindow   int `toml:"context_window"`
 	MaxOutputTokens int `toml:"max_output_tokens"`
+	// SupportedEfforts lists the reasoning levels this model accepts, in the vocabulary of
+	// internal/contract/provider. Empty means the vendor's protocol has no effort setting, which
+	// is not the same as offering none: a request for an effort is then an error rather than a
+	// silent no-op.
+	SupportedEfforts []string `toml:"supported_efforts"`
+	// DefaultEffort is the level the model uses when nothing asks for one.
+	DefaultEffort string `toml:"default_effort"`
 }
 
 // Price is a per-million-token price in the provider's own billing currency.
