@@ -216,12 +216,13 @@ data: [DONE]
 		switch chunk.Kind {
 		case provider.ChunkText:
 			text.WriteString(chunk.Text)
+		case provider.ChunkReasoning:
+			t.Errorf("a text-only turn produced reasoning")
 		case provider.ChunkUsage:
 			usage = chunk.Usage
 		case provider.ChunkDone:
 			sawDone = true
-		case provider.ChunkReasoning, provider.ChunkToolCall, provider.ChunkError,
-			provider.ChunkToolCallStart, provider.ChunkToolCallArgsDelta:
+		case provider.ChunkToolCall, provider.ChunkError:
 			t.Errorf("an unexpected chunk: %v %+v", chunk.Kind, chunk.Err)
 		}
 	}
@@ -263,8 +264,7 @@ data: [DONE]
 			reasoning.WriteString(chunk.Text)
 		case provider.ChunkText:
 			answer.WriteString(chunk.Text)
-		case provider.ChunkToolCallStart, provider.ChunkToolCallArgsDelta, provider.ChunkToolCall,
-			provider.ChunkUsage, provider.ChunkDone, provider.ChunkError:
+		case provider.ChunkToolCall, provider.ChunkUsage, provider.ChunkDone, provider.ChunkError:
 			// Not what this case is about; the stream, tool-call and error cases cover them.
 		}
 	}

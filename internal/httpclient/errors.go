@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"strings"
 	"syscall"
 	"time"
@@ -58,6 +59,39 @@ func Retryable(err error) bool {
 		return false
 	}
 	return transientNetworkFailure(err)
+}
+
+// retryableAttempt decides whether a failed attempt may be sent again.
+//
+// A timeout is ambiguous, and the ambiguity is expensive. A dial that timed out never reached the
+// server, so repeating it is free; a response-header timeout means the server accepted the request
+// and is already working, so repeating it produces a second completion that nobody sees and, on a
+// metered provider, pays for one. The difference therefore hangs on whether repeating the method is
+// safe by definition.
+func retryableAttempt(req *http.Request, err error) bool {
+	if !Retryable(err) {
+		return false
+	}
+	if isIdempotent(req.Method) || !isTimeout(err) {
+		return true
+	}
+	return false
+}
+
+// isIdempotent reports whether repeating a method is safe by definition rather than by luck.
+func isIdempotent(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
+		return true
+	default:
+		return false
+	}
+}
+
+// isTimeout reports whether the clock ended the attempt rather than the connection.
+func isTimeout(err error) bool {
+	netErr, found := errors.AsType[net.Error](err)
+	return found && netErr.Timeout()
 }
 
 // transientNetworkFailure reports whether a transport-level failure is one that asking

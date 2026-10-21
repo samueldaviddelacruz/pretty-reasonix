@@ -12,10 +12,13 @@ type messagesRequest struct {
 	// System is a top-level field rather than a message, which is the structural difference from
 	// chat completions that this kind exists to absorb. The contract still models it as a system
 	// message, because that is what it is to every caller above.
-	System      []systemBlock `json:"system,omitempty"`
-	Messages    []turn        `json:"messages"`
-	Tools       []tool        `json:"tools,omitempty"`
-	Temperature float64       `json:"temperature,omitempty"`
+	System   []systemBlock `json:"system,omitempty"`
+	Messages []turn        `json:"messages"`
+	Tools    []tool        `json:"tools,omitempty"`
+	// No omitempty: zero is a value — the most predictable answer — and dropping it lets the vendor
+	// substitute its own default. provider.Request says the same thing for the same reason, and the
+	// two kinds have to agree or one setting would mean two things.
+	Temperature float64 `json:"temperature"`
 	// Thinking carries the reasoning effort as a token budget rather than a name.
 	Thinking *thinking `json:"thinking,omitempty"`
 	Stream   bool      `json:"stream"`

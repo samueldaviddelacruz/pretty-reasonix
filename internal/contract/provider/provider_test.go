@@ -231,12 +231,10 @@ func TestChunkKindsAreStable(t *testing.T) {
 	}{
 		{provider.ChunkText, 0},
 		{provider.ChunkReasoning, 1},
-		{provider.ChunkToolCallStart, 2},
-		{provider.ChunkToolCallArgsDelta, 3},
-		{provider.ChunkToolCall, 4},
-		{provider.ChunkUsage, 5},
-		{provider.ChunkDone, 6},
-		{provider.ChunkError, 7},
+		{provider.ChunkToolCall, 2},
+		{provider.ChunkUsage, 3},
+		{provider.ChunkDone, 4},
+		{provider.ChunkError, 5},
 	}
 	for _, entry := range documented {
 		if int(entry.kind) != entry.want {

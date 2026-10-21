@@ -140,7 +140,7 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 		// wrong layer and would be trivially bypassed by the next caller.
 		resp, err := c.http.Do(req)
 		if err != nil {
-			if attempt >= c.retry.MaxAttempts || !Retryable(err) {
+			if attempt >= c.retry.MaxAttempts || !retryableAttempt(req, err) {
 				return nil, fmt.Errorf("%s %s: %w", req.Method, req.URL, err)
 			}
 			if !repeatable && hadBody {

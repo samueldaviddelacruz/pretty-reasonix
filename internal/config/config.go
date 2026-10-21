@@ -123,6 +123,9 @@ type ModelOverride struct {
 	// internal/contract/provider. Empty means the vendor's protocol has no effort setting, which
 	// is not the same as offering none: a request for an effort is then an error rather than a
 	// silent no-op.
+	//
+	// Nothing reads this yet — internal/model.EffortFor is ready for it, and the assembly ticket
+	// (E19) is what passes it across. A user who sets it today gets no warning.
 	SupportedEfforts []string `toml:"supported_efforts"`
 	// DefaultEffort is the level the model uses when nothing asks for one.
 	DefaultEffort string `toml:"default_effort"`
