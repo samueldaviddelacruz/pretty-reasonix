@@ -280,6 +280,7 @@ func (f *folder) Fold(payload string, emit func(provider.Chunk) bool) (bool, err
 		if event.Message != nil {
 			f.usage.InputTokens = event.Message.Usage.InputTokens
 			f.usage.CacheHitTokens = event.Message.Usage.CacheReadInputTokens
+			f.usage.CacheWriteTokens = event.Message.Usage.CacheCreationInputTokens
 		}
 	case "content_block_start":
 		if event.ContentBlock != nil && event.ContentBlock.Type == "tool_use" {
@@ -319,6 +320,9 @@ func (f *folder) Fold(payload string, emit func(provider.Chunk) bool) (bool, err
 		if event.Usage != nil {
 			f.usage.OutputTokens = event.Usage.OutputTokens
 			f.usage.CacheHitTokens = max(f.usage.CacheHitTokens, event.Usage.CacheReadInputTokens)
+			// Kept from whichever event carried it: this vendor reports the write at the start and
+			// may repeat it at the end, and a write billed once must not be counted twice.
+			f.usage.CacheWriteTokens = max(f.usage.CacheWriteTokens, event.Usage.CacheCreationInputTokens)
 		}
 		if !emit(provider.Chunk{Kind: provider.ChunkUsage, Usage: &f.usage}) {
 			return true, nil

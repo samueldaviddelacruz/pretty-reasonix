@@ -134,7 +134,13 @@ type Usage struct {
 	// fresh expense each time.
 	CacheHitTokens  int `json:"cache_hit_tokens,omitempty"`
 	CacheMissTokens int `json:"cache_miss_tokens,omitempty"`
-	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
+	// CacheWriteTokens is what it cost to *put* tokens in the cache. It is not a subset of the input
+	// count any more than a hit is: a write is billed differently from a read, and a vendor that
+	// charges for one and not the other would otherwise look free. Only some vendors report it, so
+	// zero here means "not reported" as often as it means "nothing was written" — a distinction the
+	// kinds preserve per vendor and this program cannot recover.
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
+	ReasoningTokens  int `json:"reasoning_tokens,omitempty"`
 	// FinishReason is kept in the vendor's own words rather than mapped to an enum. The
 	// cases worth acting on are exactly the ones a mapping flattens — a stop for length
 	// needs a different follow-up from a stop for completion — and a provider this
