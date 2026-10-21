@@ -11,6 +11,9 @@
 # Build output: `make build` writes bin/, `make cross` writes dist/.
 /bin/
 /dist/
+# A bare `go build ./...` at the module root writes a binary named after the module. It happened
+# once and left 2.4 MB in the tree; the Makefile's targets write under bin/ and dist/ instead.
+/pretty-reasonix
 
 # Test binary, built with `go test -c`
 *.test
