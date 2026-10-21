@@ -237,6 +237,7 @@ pretty-reasonix/
 │   ├── architecture/                  # the dependency-rule test (E1-T3); no production code
 │   ├── config/                        # TOML schema, defaults, resolution, paths, trust store
 │   ├── provider/
+│   │   ├── stream/                    #   the event-stream loop every kind shares
 │   │   ├── openai/                    #   kind="openai"   (chat completions, SSE)
 │   │   ├── anthropic/                 #   kind="anthropic" (Messages API, SSE)
 │   │   └── responses/                 #   kind="responses" (Responses API)
