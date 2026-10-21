@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"net/http"
 	"slices"
@@ -18,6 +17,7 @@ import (
 
 	"pretty-reasonix/internal/contract/provider"
 	"pretty-reasonix/internal/httpclient"
+	"pretty-reasonix/internal/provider/stream"
 )
 
 // endpointPath is appended to a provider's base URL. The base names the vendor and its version
@@ -99,13 +99,7 @@ func (k *Kind) Stream(ctx context.Context, req provider.Request) (<-chan provide
 		return nil, err
 	}
 
-	chunks := make(chan provider.Chunk)
-	go func() {
-		defer close(chunks)
-		defer func() { _ = events.Close() }()
-		k.fold(ctx, events, chunks)
-	}()
-	return chunks, nil
+	return stream.Pump(ctx, events, newFolder()), nil
 }
 
 // encodeRequest renders the request in the vendor's shape.
@@ -150,57 +144,6 @@ func (k *Kind) encodeRequest(req provider.Request) ([]byte, error) {
 	return body, nil
 }
 
-// fold reads the vendor's events and emits chunks until the stream ends or the caller gives up.
-func (*Kind) fold(ctx context.Context, events *httpclient.Events, chunks chan<- provider.Chunk) {
-	// emit reports whether the caller is still reading, so a cancelled stream stops promptly
-	// rather than filling a channel nobody drains.
-	emit := func(chunk provider.Chunk) bool {
-		select {
-		case chunks <- chunk:
-			return true
-		case <-ctx.Done():
-			return false
-		}
-	}
-
-	folding := newFolder()
-	// done is emitted however the stream ends normally — the vendor's marker, a finished turn, or a
-	// plain close — because the loop above needs one unambiguous "nothing more is coming" rather than
-	// three ways for a vendor to end a turn. A stream that failed does not get one.
-	done := false
-	emitDone := func() {
-		if !done {
-			done = true
-			emit(provider.Chunk{Kind: provider.ChunkDone})
-		}
-	}
-
-	for {
-		event, err := events.Next()
-		if errors.Is(err, io.EOF) {
-			emitDone()
-			return
-		}
-		if err != nil {
-			emit(provider.Chunk{Kind: provider.ChunkError, Err: err})
-			return
-		}
-		if strings.TrimSpace(event.Data) == streamDone {
-			emitDone()
-			return
-		}
-		over, foldErr := folding.event(event.Data, emit)
-		if foldErr != nil {
-			emit(provider.Chunk{Kind: provider.ChunkError, Err: foldErr})
-			return
-		}
-		if over {
-			emitDone()
-			return
-		}
-	}
-}
-
 // folder accumulates one stream's deltas into this program's chunks.
 //
 // Tool calls arrive as fragments interleaved by index — the first fragment of the second call can
@@ -225,8 +168,13 @@ func newFolder() *folder {
 	return &folder{calls: make(map[int]*pendingCall, 4)}
 }
 
-// event folds one payload. It reports whether the vendor said the stream is over.
-func (f *folder) event(payload string, emit func(provider.Chunk) bool) (bool, error) {
+// Fold folds one payload. It reports that the vendor said the stream is over at its marker, which
+// is this protocol's own way of saying so and the reason the shared loop takes the signal rather
+// than knowing the marker itself.
+func (f *folder) Fold(payload string, emit func(provider.Chunk) bool) (bool, error) {
+	if strings.TrimSpace(payload) == streamDone {
+		return true, nil
+	}
 	var chunk chatChunk
 	if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
 		return false, fmt.Errorf("decoding a stream chunk: %w", err)

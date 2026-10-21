@@ -15,12 +15,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
 	"pretty-reasonix/internal/contract/provider"
 	"pretty-reasonix/internal/httpclient"
+	"pretty-reasonix/internal/provider/stream"
 )
 
 const (
@@ -137,13 +137,7 @@ func (k *Kind) Stream(ctx context.Context, req provider.Request) (<-chan provide
 		return nil, err
 	}
 
-	chunks := make(chan provider.Chunk)
-	go func() {
-		defer close(chunks)
-		defer func() { _ = events.Close() }()
-		k.fold(ctx, events, chunks)
-	}()
-	return chunks, nil
+	return stream.Pump(ctx, events, newFolder()), nil
 }
 
 // encodeRequest renders a request in the vendor's shape.
@@ -256,48 +250,6 @@ func thinkingFor(effort provider.Effort, maxTokens int) *thinking {
 	return &thinking{Type: "enabled", BudgetTokens: budget}
 }
 
-// fold reads the vendor's events and emits chunks until the stream ends or the caller gives up.
-func (*Kind) fold(ctx context.Context, events *httpclient.Events, chunks chan<- provider.Chunk) {
-	emit := func(chunk provider.Chunk) bool {
-		select {
-		case chunks <- chunk:
-			return true
-		case <-ctx.Done():
-			return false
-		}
-	}
-
-	folding := newFolder()
-	done := false
-	emitDone := func() {
-		if !done {
-			done = true
-			emit(provider.Chunk{Kind: provider.ChunkDone})
-		}
-	}
-
-	for {
-		event, err := events.Next()
-		if errors.Is(err, io.EOF) {
-			emitDone()
-			return
-		}
-		if err != nil {
-			emit(provider.Chunk{Kind: provider.ChunkError, Err: err})
-			return
-		}
-		over, foldErr := folding.event(event.Data, emit)
-		if foldErr != nil {
-			emit(provider.Chunk{Kind: provider.ChunkError, Err: foldErr})
-			return
-		}
-		if over {
-			emitDone()
-			return
-		}
-	}
-}
-
 // folder accumulates one stream into this program's chunks.
 //
 // Tool calls are identified by their content-block index, and a block is complete when the vendor
@@ -316,8 +268,8 @@ type pendingBlock struct {
 
 func newFolder() *folder { return &folder{blocks: make(map[int]*pendingBlock, 2)} }
 
-// event folds one payload and reports whether the vendor said the stream is over.
-func (f *folder) event(payload string, emit func(provider.Chunk) bool) (bool, error) {
+// Fold folds one payload. It reports the end at the event that says the message is over.
+func (f *folder) Fold(payload string, emit func(provider.Chunk) bool) (bool, error) {
 	var event streamEvent
 	if err := json.Unmarshal([]byte(payload), &event); err != nil {
 		return false, fmt.Errorf("decoding a stream event: %w", err)
