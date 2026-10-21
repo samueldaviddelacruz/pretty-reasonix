@@ -308,7 +308,7 @@ func TestAnEffortBecomesATokenBudget(t *testing.T) {
 func TestTextAndThinkingStreamAsSeparateChunks(t *testing.T) {
 	t.Parallel()
 	const fixture = `event: message_start
-data: {"type":"message_start","message":{"usage":{"input_tokens":9,"cache_read_input_tokens":4}}}
+data: {"type":"message_start","message":{"usage":{"input_tokens":9,"cache_read_input_tokens":4,"cache_creation_input_tokens":3}}}
 
 event: content_block_delta
 data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"weighing"}}
@@ -354,6 +354,10 @@ data: {"type":"message_stop"}
 	}
 	if usage.InputTokens != 9 || usage.OutputTokens != 3 || usage.CacheHitTokens != 4 {
 		t.Errorf("usage is %+v", usage)
+	}
+	// The write is charged separately from the read, so it has to survive as its own number.
+	if usage.CacheWriteTokens != 3 {
+		t.Errorf("cache writes are %d, want 3", usage.CacheWriteTokens)
 	}
 	if usage.FinishReason != "end_turn" {
 		t.Errorf("finish reason is %q, want the vendor's own word", usage.FinishReason)
