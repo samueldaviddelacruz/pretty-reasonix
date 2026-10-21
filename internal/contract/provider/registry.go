@@ -31,6 +31,10 @@ type Config struct {
 	// is a capability fact and not a preference. Nothing fills it from configuration yet; E19 wires
 	// it, and the anthropic kind is the only reader.
 	PromptCache bool
+	// RequestURL is an exact endpoint, for a proxy whose path the vendor's kind cannot derive. A
+	// value equal to BaseURL is discarded: an override that repeats the base says nothing, and
+	// honouring it would silently drop the kind's own path.
+	RequestURL string
 	// APIKey resolves the credential. It may be nil, and it may return an empty
 	// string; a kind reports either as a configuration error rather than sending a
 	// request the vendor will reject, because "you have not configured a key" is a
