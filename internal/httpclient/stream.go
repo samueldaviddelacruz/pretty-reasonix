@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -70,8 +71,9 @@ type Events struct {
 	cancel  context.CancelFunc
 	idle    *time.Timer
 	// silent records that the watchdog fired, so a read failure can be attributed to silence
-	// rather than reported as a broken connection.
-	silent    bool
+	// rather than reported as a broken connection. The watchdog writes it from its own
+	// goroutine, so it is atomic: a plain bool here is a data race with the read below.
+	silent    atomic.Bool
 	delivered int
 	reopened  bool
 }
@@ -96,11 +98,11 @@ func (e *Events) open(ctx context.Context) error {
 	}
 
 	e.cancel = cancel
-	e.silent = false
+	e.silent.Store(false)
 	e.body = &watchedBody{body: response.Body, touch: e.touch}
 	e.scanner = newEventScanner(e.body)
 	e.idle = time.AfterFunc(e.idleFor, func() {
-		e.silent = true
+		e.silent.Store(true)
 		cancel()
 	})
 	return nil
@@ -136,12 +138,12 @@ func (e *Events) Next() (Event, error) {
 			Delivered: e.delivered,
 			Retryable: e.delivered == 0,
 		}
-		if e.silent {
+		if e.silent.Load() {
 			interrupted.Cause = fmt.Errorf("%w for %v: %w", ErrStreamIdle, e.idleFor, err)
 		}
 		// One reopen, only for silence before anything was delivered, and only while the caller
 		// is still waiting.
-		if e.silent && e.delivered == 0 && !e.reopened && e.ctx.Err() == nil {
+		if e.silent.Load() && e.delivered == 0 && !e.reopened && e.ctx.Err() == nil {
 			e.reopened = true
 			_ = e.endAttempt()
 			if reopenErr := e.open(e.ctx); reopenErr == nil {

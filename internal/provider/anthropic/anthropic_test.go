@@ -22,13 +22,14 @@ type recorded struct {
 	body    []byte
 	headers http.Header
 	method  string
+	path    string
 }
 
 func (r *recorded) note(request *http.Request) {
 	body, _ := io.ReadAll(request.Body)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.body, r.headers, r.method = body, request.Header.Clone(), request.Method
+	r.body, r.headers, r.method, r.path = body, request.Header.Clone(), request.Method, request.URL.Path
 }
 
 func (r *recorded) get() ([]byte, http.Header) {
@@ -49,6 +50,12 @@ func serve(t *testing.T, status int, fixture string) (*httptest.Server, *recorde
 	}))
 	t.Cleanup(server.Close)
 	return server, seen
+}
+
+func (r *recorded) seenPath() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.path
 }
 
 // build makes the kind against a test server, with a key so the request is accepted. Extra
@@ -88,28 +95,28 @@ func stream(t *testing.T, built provider.Provider, request provider.Request) []p
 
 // TestTheBaseURLRootIsResolvedAndThePathReDerived is the criterion's first part: this kind derives
 // its own version segment, so a base URL written for chat completions works here unchanged.
+//
+// The assertion is the path the server actually received, which is what makes a doubled /v1
+// visible — the kind exposes no accessor for its root, because nothing outside this test needs one.
 func TestTheBaseURLRootIsResolvedAndThePathReDerived(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"https://api.anthropic.com":                    "https://api.anthropic.com/v1/messages",
-		"https://api.anthropic.com/":                   "https://api.anthropic.com/v1/messages",
-		"https://api.anthropic.com/v1":                 "https://api.anthropic.com/v1/messages",
-		"https://api.anthropic.com/v1/":                "https://api.anthropic.com/v1/messages",
-		"https://api.deepseek.com/anthropic":           "https://api.deepseek.com/anthropic/v1/messages",
-		"https://api.deepseek.com/anthropic/v1/":       "https://api.deepseek.com/anthropic/v1/messages",
-		"https://proxy.example.com/anthropic-proxy/v1": "https://proxy.example.com/anthropic-proxy/v1/messages",
+		"":               "/v1/messages",
+		"/":              "/v1/messages",
+		"/v1":            "/v1/messages",
+		"/v1/":           "/v1/messages",
+		"/anthropic":     "/anthropic/v1/messages",
+		"/anthropic/v1":  "/anthropic/v1/messages",
+		"/anthropic/v1/": "/anthropic/v1/messages",
+		"/some/proxy/v1": "/some/proxy/v1/messages",
 	}
-	for baseURL, want := range cases {
-		built, err := anthropic.New(provider.Config{Name: "v", BaseURL: baseURL, Model: "m"})
-		if err != nil {
-			t.Fatalf("New(%q): %v", baseURL, err)
-		}
-		endpoint, ok := built.(interface{ Endpoint() string })
-		if !ok {
-			t.Fatal("the kind does not expose its endpoint, so where it talks to cannot be checked")
-		}
-		if got := endpoint.Endpoint(); got != want {
-			t.Errorf("base %q resolves to %q, want %q", baseURL, got, want)
+	for suffix, want := range cases {
+		server, seen := serve(t, http.StatusOK, "data: {\"type\":\"message_stop\"}\n\n")
+		stream(t, build(t, server.URL+suffix, nil), provider.Request{})
+		server.Close()
+
+		if got := seen.seenPath(); got != want {
+			t.Errorf("base %q was asked for %q, want %q", suffix, got, want)
 		}
 	}
 }
@@ -335,8 +342,7 @@ data: {"type":"message_stop"}
 			usage = chunk.Usage
 		case provider.ChunkDone:
 			sawDone = true
-		case provider.ChunkToolCallStart, provider.ChunkToolCallArgsDelta, provider.ChunkToolCall,
-			provider.ChunkError:
+		case provider.ChunkToolCall, provider.ChunkError:
 			t.Errorf("an unexpected chunk: %v %+v", chunk.Kind, chunk.Err)
 		}
 	}

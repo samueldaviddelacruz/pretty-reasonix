@@ -98,13 +98,22 @@ func resolveRoot(baseURL string) string {
 // Name is the provider entry's own name.
 func (k *Kind) Name() string { return k.name }
 
-// Endpoint is where this kind sends its requests, which is the base URL resolved through
-// resolveRoot. Exported for the diagnostics that print where a provider will talk to.
-func (k *Kind) Endpoint() string { return k.root + messagesPath }
+// endpoint is where this kind sends its requests, which is the base URL resolved through
+// resolveRoot.
+func (k *Kind) endpoint() string { return k.root + messagesPath }
 
 // Stream sends the request and folds the vendor's events into this program's chunks.
+//
+// The caller must drain the returned channel or cancel ctx. The goroutine that folds the stream
+// blocks on the send, so abandoning it without doing one of those leaves it waiting for ever.
 func (k *Kind) Stream(ctx context.Context, req provider.Request) (<-chan provider.Chunk, error) {
-	if k.apiKey == nil || k.apiKey() == "" {
+	// The key is resolved once: the resolver may read a file, and calling it twice both costs the
+	// read and risks sending a different key from the one that passed the check.
+	key := ""
+	if k.apiKey != nil {
+		key = k.apiKey()
+	}
+	if key == "" {
 		return nil, fmt.Errorf("provider %q has no api key configured", k.name)
 	}
 
@@ -112,7 +121,7 @@ func (k *Kind) Stream(ctx context.Context, req provider.Request) (<-chan provide
 	if err != nil {
 		return nil, err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, k.Endpoint(), bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, k.endpoint(), bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("building the request: %w", err)
 	}
@@ -121,7 +130,7 @@ func (k *Kind) Stream(ctx context.Context, req provider.Request) (<-chan provide
 	// Canonical case, which is what go puts on the wire anyway: the vendor documents these
 	// lowercase, but http header names are case-insensitive.
 	request.Header.Set("Anthropic-Version", apiVersion)
-	request.Header.Set("X-Api-Key", k.apiKey())
+	request.Header.Set("X-Api-Key", key)
 
 	events, err := k.client.Stream(ctx, request)
 	if err != nil {

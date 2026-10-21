@@ -11,7 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 
 	"pretty-reasonix/internal/contract/provider"
@@ -65,9 +67,18 @@ func (k *Kind) Name() string { return k.name }
 // The error return covers everything that can go wrong before the first chunk: a request that
 // cannot be built, a missing credential, an HTTP refusal. After that the chunks carry the news,
 // including a failure, because the caller is already reading.
+//
+// The caller must drain the returned channel or cancel ctx. The goroutine that folds the stream
+// blocks on the send, so abandoning it without doing one of those leaves it waiting for ever.
 func (k *Kind) Stream(ctx context.Context, req provider.Request) (<-chan provider.Chunk, error) {
-	if k.apiKey == nil || k.apiKey() == "" {
-		// Deliberately without the key or its absence in the message: an error travels.
+	// The key is resolved once: the resolver may read a file, and calling it twice both costs the
+	// read and risks sending a different key from the one that passed the check.
+	key := ""
+	if k.apiKey != nil {
+		key = k.apiKey()
+	}
+	if key == "" {
+		// Deliberately without the key in the message: an error travels.
 		return nil, fmt.Errorf("provider %q has no api key configured", k.name)
 	}
 
@@ -81,7 +92,7 @@ func (k *Kind) Stream(ctx context.Context, req provider.Request) (<-chan provide
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "text/event-stream")
-	request.Header.Set("Authorization", "Bearer "+k.apiKey())
+	request.Header.Set("Authorization", "Bearer "+key)
 
 	events, err := k.client.Stream(ctx, request)
 	if err != nil {
@@ -278,7 +289,9 @@ func (f *folder) accumulate(fragment chatToolCallDelta) {
 
 // emitCalls hands over every assembled call, in the order the vendor indexed them.
 func (f *folder) emitCalls(emit func(provider.Chunk) bool) {
-	for index := range len(f.calls) {
+	// Sorted rather than iterated by position: the vendor's indices are dense today, and a loop bound
+	// derived from the map's length would silently drop a call if one ever were not.
+	for _, index := range slices.Sorted(maps.Keys(f.calls)) {
 		call, known := f.calls[index]
 		if !known {
 			continue

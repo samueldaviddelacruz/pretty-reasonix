@@ -28,7 +28,7 @@ const (
 //
 // Arguments is the raw JSON the model produced, held as a string rather than as a
 // json.RawMessage, because it arrives as a stream of fragments that have to be
-// concatenated before they are JSON at all (ChunkToolCallArgsDelta). Parsing happens
+// concatenated before they are JSON at all. Parsing happens
 // at the boundary where the tool runs, so a call that never manages to become valid
 // JSON is reported there rather than treated as a transport failure.
 type ToolCall struct {
@@ -98,14 +98,7 @@ const (
 	// ChunkReasoning is a fragment of its visible reasoning, where a vendor exposes
 	// one.
 	ChunkReasoning
-	// ChunkToolCallStart announces a tool call: ToolCall carries the id and name, and
-	// the arguments are still to come.
-	ChunkToolCallStart
-	// ChunkToolCallArgsDelta is another fragment of arguments for the call announced
-	// by the last ChunkToolCallStart.
-	ChunkToolCallArgsDelta
-	// ChunkToolCall is a complete tool call, for a protocol that delivers one whole
-	// rather than in fragments.
+	// ChunkToolCall is a complete tool call, ready to run.
 	ChunkToolCall
 	// ChunkUsage reports tokens and cache accounting for the request.
 	ChunkUsage

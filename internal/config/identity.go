@@ -24,9 +24,6 @@ const (
 	// install keep its state to itself.
 	HomeEnvVar = "PRX_HOME"
 
-	// EnvPrefix is the prefix for this program's own environment variables.
-	EnvPrefix = "PRX_"
-
 	// ProjectConfigFile is the per-project configuration, found beside the code
 	// it configures.
 	ProjectConfigFile = "prx.toml"

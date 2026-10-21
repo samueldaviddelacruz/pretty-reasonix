@@ -28,7 +28,8 @@ type Config struct {
 	IdleTimeout time.Duration
 	// PromptCache says the vendor accepts ephemeral cache-control breakpoints. Sending them to a
 	// vendor that does not implement the field is a rejected request rather than a no-op, so this
-	// is a capability fact and not a preference.
+	// is a capability fact and not a preference. Nothing fills it from configuration yet; E19 wires
+	// it, and the anthropic kind is the only reader.
 	PromptCache bool
 	// APIKey resolves the credential. It may be nil, and it may return an empty
 	// string; a kind reports either as a configuration error rather than sending a
