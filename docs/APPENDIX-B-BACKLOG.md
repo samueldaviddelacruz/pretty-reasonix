@@ -562,6 +562,11 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
 - **E20-T9 · Document-consistency test** — `size:S` · deps: `E1-T3` · labels: `type:test`, `area:quality`, `milestone:m0`
   - AC: a tracked test fails when the backlog, the design's epic map and `README.md` disagree about how many tickets exist, when a reference names a ticket with no definition, or when a dependency points at a later milestone.
   - AC: an epic whose tickets are not a contiguous `T1..Tn` sequence fails, and so does a ticket with no size or no acceptance criterion.
+- **E20-T10 · Mutation check for tests that cannot fail** — `size:S` · deps: `E1-T3`, `E4-T1` · labels: `type:test`, `area:quality`, `milestone:m0`
+  - AC: a mutant table names, per entry, a file, the exact text to replace, its replacement, and the test that must go red — with at least one entry per guard whose test could silently stop guarding: the drop-notice `Code` in `internal/contract/event`, the isolation boundary in `internal/architecture`, and the unsupported-effort refusal in `internal/model`.
+  - AC: `make mutation` applies each mutant in turn, runs the named test, and exits non-zero when any mutant **survives** — a test that still passes with its subject broken is the failure this ticket exists to catch, because it is indistinguishable from a test that works until the day it matters.
+  - AC: every touched file is restored even when a mutant survives, when the test itself errors, or when the run is interrupted, and a test proves the restore by mutating and then checking the file is byte-identical to what it was.
+  - AC: it is a build-tagged Go test (`//go:build mutation`) beside the other guards, so `make test` stays fast, the scheduled CI tier runs it, and `docs/GO-STANDARDS.md` §4 names it as a required step for any change whose tests were not written by hand.
 
 ### E21 · Documentation and onboarding — M5
 
