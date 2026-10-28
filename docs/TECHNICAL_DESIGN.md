@@ -963,7 +963,7 @@ Detail, dependencies and per-ticket acceptance criteria are in **Appendix B**.
 | **E17** | Hooks | M4 | 5 |
 | **E18** | Instructions and `@`-references | M4 | 4 |
 | **E19** | CLI surface: routing, setup, doctor, completion | M5 | 6 |
-| **E20** | Quality: test harness and end-to-end suite | M0–M5 | 9 |
+| **E20** | Quality: test harness and end-to-end suite | M0–M5 | 10 |
 | **E21** | Documentation and onboarding | M5 | 4 |
 | **E22** | Release and distribution | M5 | 4 |
 
