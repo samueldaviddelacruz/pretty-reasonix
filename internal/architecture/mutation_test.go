@@ -107,25 +107,3 @@ func TestNoMutantSurvives(t *testing.T) {
 		})
 	}
 }
-
-// moduleRoot returns the path to the module root by walking up from the current directory
-// until a go.mod file is found.
-func getModuleRoot(t *testing.T) string {
-	t.Helper()
-	dir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get working directory: %v", err)
-	}
-
-	for {
-		_, err := os.Stat(filepath.Join(dir, "go.mod"))
-		if err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatalf("no go.mod found in any parent directory")
-		}
-		dir = parent
-	}
-}
