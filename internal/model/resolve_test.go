@@ -159,8 +159,11 @@ func TestTheWindowFollowsTheDocumentedChain(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Resolve: %v", err)
 		}
-		if got.ContextWindow != model.DefaultContextWindow {
-			t.Errorf("window is %d, want the documented default %d", got.ContextWindow, model.DefaultContextWindow)
+		// The literal, not the constant. Comparing against model.DefaultContextWindow let a change to
+		// the constant move both sides and keep this test green — a tautology the mutation check found
+		// on its first run, which is the entire argument for having one.
+		if got.ContextWindow != 160000 {
+			t.Errorf("window is %d, want the documented default of 160000", got.ContextWindow)
 		}
 		// Zero means the vendor decides, which is not the same as a cap of nothing.
 		if got.MaxOutputTokens != 0 {

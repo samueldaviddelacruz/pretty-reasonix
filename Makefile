@@ -31,7 +31,7 @@ BUILDFLAGS := -trimpath
 # Overridable so a machine that keeps the linter outside PATH still works.
 GOLANGCI_LINT ?= golangci-lint
 
-.PHONY: build cross pure-go test vet fmt lint clean
+.PHONY: build cross pure-go test vet fmt lint clean mutation
 
 # build compiles the binary for this machine into bin/.
 build:
@@ -79,3 +79,8 @@ lint:
 # clean removes build output.
 clean:
 	rm -rf $(BINDIR) $(DISTDIR)
+
+# Mutation check: break one line per entry in internal/architecture/mutation_test.go, run the test that
+# should catch it, and fail if any test stays green. Slow by nature, so it is not part of test.
+mutation:
+	go test -tags mutation -run TestNoMutantSurvives -count=1 ./internal/architecture/

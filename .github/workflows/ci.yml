@@ -122,5 +122,9 @@ jobs:
       # exactly the point of the job existing before the tests do.
       - name: Integration tier
         run: go test -race -tags integration ./...
+      # Generated or model-written tests get checked here: a test that cannot fail looks exactly
+      # like a passing one, and this is the only step that tells them apart.
+      - name: Mutation check
+        run: make mutation
       - name: End-to-end tier
         run: go test -race -tags e2e ./...
