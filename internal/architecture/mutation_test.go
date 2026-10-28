@@ -39,6 +39,14 @@ var mutants = []mutant{
 		mustFail: "TestTruncationRecognisesEveryVendorsWord",
 	},
 	{
+		name:     "the running turn reads the live policy instead of the one it froze",
+		pkg:      "internal/agent",
+		source:   "internal/agent/controller.go",
+		old:      "policy.Block()",
+		new:      "c.Policy().Block()",
+		mustFail: "TestAPresetChangeCannotAlterTheTurnThatIsRunning",
+	},
+	{
 		name:     "the documented context window becomes a guess",
 		pkg:      "internal/model",
 		source:   "internal/model/resolve.go",
