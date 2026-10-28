@@ -51,10 +51,12 @@ var layers = []struct {
 		[]string{"cmd"}},
 }
 
-// isolated packages import nothing else in this module at all. Ranking alone
-// would permit one contract subpackage to import another, which is exactly the
-// edge §6.2 forbids.
-var isolated = []string{"internal/contract"}
+// isolatedLayers import nothing from outside themselves. The boundary is the layer rather than each
+// subpackage: the event vocabulary carries provider.Message and provider.Usage, and one layer with one
+// vocabulary is what §6.2 means by a contract layer. An edge *out* of the layer would put a foundation
+// above what it founds, which is still forbidden; edges *within* it are not a layering breach, and
+// acyclicity is checked separately so they cannot smuggle in a loop.
+var isolatedLayers = []string{"internal/contract"}
 
 // exclusive groups may not import each other in either direction: the capability
 // packages share the contract as their vocabulary, not each other's internals.
@@ -113,9 +115,9 @@ func breach(from, to string) string {
 		return ""
 	}
 
-	for _, base := range isolated {
-		if under(from, base) {
-			return "this package imports nothing else in the module"
+	for _, layer := range isolatedLayers {
+		if under(from, layer) && !under(to, layer) {
+			return "this layer imports nothing from outside " + layer
 		}
 	}
 
@@ -408,7 +410,11 @@ func TestBreachRecognisesTheDocumentedViolations(t *testing.T) {
 		to         string
 		wantBreach bool
 	}{
-		{"contract importing a sibling", "internal/contract/tool", "internal/contract/provider", true},
+		{"the contract layer importing out of itself", "internal/contract/tool", "internal/session", true},
+		// Allowed deliberately since E4-T1: the event vocabulary carries provider.Message, so the
+		// isolation boundary is the layer rather than each subpackage. Pinned here so the relaxation is
+		// visible rather than an accident of a later edit.
+		{"a contract subpackage importing its own sibling", "internal/contract/event", "internal/contract/provider", false},
 		{"the renderer importing the agent", "internal/frontend/termrender", "internal/agent", true},
 		{"the renderer importing session state", "internal/frontend/termrender", "internal/session", true},
 		{"policy importing the loop", "internal/perm", "internal/agent", true},
