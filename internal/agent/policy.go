@@ -46,6 +46,9 @@ type Policy struct {
 	Permissions config.Permissions
 	// Sandbox is the enforcement layer beneath it: where a tool may do it.
 	Sandbox config.Sandbox
+	// Temperature is how predictable the answer should be. It travels with the posture rather than the
+	// provider because two turns on the same endpoint can want different answers.
+	Temperature float64
 }
 
 // Snapshot copies the parts of a configuration that govern a turn's behaviour.
@@ -57,7 +60,7 @@ func Snapshot(cfg *config.Config, m model.Model, effort provider.Effort, preset 
 	if preset == "" {
 		preset = PresetBalanced
 	}
-	policy := Policy{Model: m, Effort: effort, Preset: preset}
+	policy := Policy{Model: m, Effort: effort, Preset: preset, Temperature: cfg.Agent.Temperature}
 	if cfg == nil {
 		return policy
 	}

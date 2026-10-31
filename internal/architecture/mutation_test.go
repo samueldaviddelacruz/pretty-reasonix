@@ -39,6 +39,14 @@ var mutants = []mutant{
 		mustFail: "TestTruncationRecognisesEveryVendorsWord",
 	},
 	{
+		name:     "a synthetic message is inserted into the request",
+		pkg:      "internal/agent",
+		source:   "internal/agent/round.go",
+		old:      "Messages: messages,",
+		new:      "Messages: append(messages, provider.Message{Role: provider.RoleUser, Content: \"retry\"}),",
+		mustFail: "TestARetryReplaysTheIdenticalRequest",
+	},
+	{
 		name:     "the running turn reads the live policy instead of the one it froze",
 		pkg:      "internal/agent",
 		source:   "internal/agent/controller.go",

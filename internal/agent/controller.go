@@ -24,6 +24,9 @@ type Deps struct {
 	Policy Policy
 	Models []model.Model
 	Tools  []string
+	// Schemas are the tool definitions the model is shown. They arrive from the tool registry rather
+	// than being derived from Tools, because a name is not a description and a schema is.
+	Schemas []provider.ToolSchema
 }
 
 // Controller is the only thing a frontend calls.
@@ -37,6 +40,7 @@ type Controller struct {
 	sink       event.Sink
 	models     []model.Model
 	tools      []string
+	schemas    []provider.ToolSchema
 
 	mu      sync.Mutex
 	policy  Policy
@@ -64,6 +68,7 @@ func NewController(d Deps) (*Controller, error) {
 		sink:       d.Sink,
 		models:     d.Models,
 		tools:      d.Tools,
+		schemas:    d.Schemas,
 		policy:     policy,
 	}, nil
 }
