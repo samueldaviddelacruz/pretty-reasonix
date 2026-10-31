@@ -18,9 +18,13 @@ type Message struct {
 	// Hidden marks an entry that stays in the record but not in the request: the
 	// ugliness of a compaction or an injected note is a display problem, not a
 	// reason to lose the history that produced it.
-	Hidden     bool
-	ToolCallID string
-	ToolCalls  []provider.ToolCall
+	Hidden bool
+	// HostAuthored marks an entry the tool wrote rather than the person or the model — an execution
+	// policy block, an environment summary. It is kept so a reader can tell the program's words from
+	// the participants', and so the UI can style them differently.
+	HostAuthored bool
+	ToolCallID   string
+	ToolCalls    []provider.ToolCall
 }
 
 // Transcript is the append-only record of a conversation, in the order the turns
