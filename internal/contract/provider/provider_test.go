@@ -207,16 +207,19 @@ func TestAFailureAfterTheFirstTokenTravelsInTheStream(t *testing.T) {
 	t.Parallel()
 	cut := errors.New("the connection was cut")
 
-	chunk := provider.Chunk{Kind: provider.ChunkError, Err: cut}
+	chunk := provider.ErrorChunk{Err: cut}
 
-	if chunk.Kind != provider.ChunkError {
-		t.Errorf("Kind = %v, want ChunkError", chunk.Kind)
+	if chunk.Kind() != provider.ChunkError {
+		t.Errorf("Kind = %v, want ChunkError", chunk.Kind())
 	}
 	if !errors.Is(chunk.Err, cut) {
 		t.Error("the chunk does not carry the error that ended the stream")
 	}
-	if chunk.ToolCall != nil || chunk.Usage != nil || chunk.Text != "" {
-		t.Errorf("an error chunk carries payload as well: %#v", chunk)
+	// The payload check is gone rather than moved: an ErrorChunk has no Text, ToolCall or Usage field to
+	// carry, which is the whole argument for one type per state.
+	var asChunk provider.Chunk = chunk
+	if _, wrong := asChunk.(provider.TextChunk); wrong {
+		t.Error("an error chunk asserted to a text chunk")
 	}
 }
 

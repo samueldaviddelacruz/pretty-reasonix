@@ -229,17 +229,17 @@ func (f *folder) Fold(payload string, emit func(provider.Chunk) bool) (bool, err
 	switch event.Type {
 	case "response.output_text.delta":
 		if event.Delta != "" {
-			return false, emitOnly(emit, provider.Chunk{Kind: provider.ChunkText, Text: event.Delta})
+			return false, emitOnly(emit, provider.TextChunk{Text: event.Delta})
 		}
 	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
 		if event.Delta != "" {
-			return false, emitOnly(emit, provider.Chunk{Kind: provider.ChunkReasoning, Text: event.Delta})
+			return false, emitOnly(emit, provider.ReasoningChunk{Text: event.Delta})
 		}
 	case "response.output_item.done":
 		// The item is complete here, which is this protocol's equivalent of a finished content block:
 		// the call is emitted whole rather than assembled by the loop.
 		if event.Item != nil && event.Item.Type == "function_call" {
-			return false, emitOnly(emit, provider.Chunk{Kind: provider.ChunkToolCall, ToolCall: &provider.ToolCall{
+			return false, emitOnly(emit, provider.ToolCallChunk{Call: provider.ToolCall{
 				ID: event.Item.CallID, Name: event.Item.Name, Arguments: event.Item.Arguments,
 			}})
 		}
@@ -251,7 +251,7 @@ func (f *folder) Fold(payload string, emit func(provider.Chunk) bool) (bool, err
 			f.usage.ReasoningTokens = event.Response.Usage.OutputTokensDetails.ReasoningTokens
 			f.usage.FinishReason = event.Response.Status
 		}
-		return true, emitOnly(emit, provider.Chunk{Kind: provider.ChunkUsage, Usage: &f.usage})
+		return true, emitOnly(emit, provider.UsageChunk{Usage: f.usage})
 	case "response.failed", "error":
 		message := "the provider failed the request"
 		if event.Response != nil && event.Response.Error != nil && event.Response.Error.Message != "" {

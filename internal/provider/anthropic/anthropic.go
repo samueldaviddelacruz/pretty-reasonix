@@ -292,11 +292,11 @@ func (f *folder) Fold(payload string, emit func(provider.Chunk) bool) (bool, err
 		}
 		switch event.Delta.Type {
 		case "text_delta":
-			if !emit(provider.Chunk{Kind: provider.ChunkText, Text: event.Delta.Text}) {
+			if !emit(provider.TextChunk{Text: event.Delta.Text}) {
 				return true, nil
 			}
 		case "thinking_delta":
-			if !emit(provider.Chunk{Kind: provider.ChunkReasoning, Text: event.Delta.Thinking}) {
+			if !emit(provider.ReasoningChunk{Text: event.Delta.Thinking}) {
 				return true, nil
 			}
 		case "input_json_delta":
@@ -307,7 +307,7 @@ func (f *folder) Fold(payload string, emit func(provider.Chunk) bool) (bool, err
 	case "content_block_stop":
 		if pending, known := f.blocks[event.Index]; known {
 			delete(f.blocks, event.Index)
-			if !emit(provider.Chunk{Kind: provider.ChunkToolCall, ToolCall: &provider.ToolCall{
+			if !emit(provider.ToolCallChunk{Call: provider.ToolCall{
 				ID: pending.id, Name: pending.name, Arguments: pending.arguments.String(),
 			}}) {
 				return true, nil
@@ -324,7 +324,7 @@ func (f *folder) Fold(payload string, emit func(provider.Chunk) bool) (bool, err
 			// may repeat it at the end, and a write billed once must not be counted twice.
 			f.usage.CacheWriteTokens = max(f.usage.CacheWriteTokens, event.Usage.CacheCreationInputTokens)
 		}
-		if !emit(provider.Chunk{Kind: provider.ChunkUsage, Usage: &f.usage}) {
+		if !emit(provider.UsageChunk{Usage: f.usage}) {
 			return true, nil
 		}
 	case "message_stop":

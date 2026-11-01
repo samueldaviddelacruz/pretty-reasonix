@@ -190,12 +190,12 @@ func (f *folder) Fold(payload string, emit func(provider.Chunk) bool) (bool, err
 			continue // this program asks for one completion, so only the first choice is read
 		}
 		if choice.Delta.Content != "" {
-			if !emit(provider.Chunk{Kind: provider.ChunkText, Text: choice.Delta.Content}) {
+			if !emit(provider.TextChunk{Text: choice.Delta.Content}) {
 				return true, nil
 			}
 		}
 		if choice.Delta.ReasoningContent != "" {
-			if !emit(provider.Chunk{Kind: provider.ChunkReasoning, Text: choice.Delta.ReasoningContent}) {
+			if !emit(provider.ReasoningChunk{Text: choice.Delta.ReasoningContent}) {
 				return true, nil
 			}
 		}
@@ -210,7 +210,7 @@ func (f *folder) Fold(payload string, emit func(provider.Chunk) bool) (bool, err
 
 	if chunk.Usage != nil {
 		usage := chunk.Usage.toUsage(f.finishedReason)
-		if !emit(provider.Chunk{Kind: provider.ChunkUsage, Usage: &usage}) {
+		if !emit(provider.UsageChunk{Usage: usage}) {
 			return true, nil
 		}
 	}
@@ -244,7 +244,7 @@ func (f *folder) emitCalls(emit func(provider.Chunk) bool) {
 		if !known {
 			continue
 		}
-		if !emit(provider.Chunk{Kind: provider.ChunkToolCall, ToolCall: &provider.ToolCall{
+		if !emit(provider.ToolCallChunk{Call: provider.ToolCall{
 			ID:        call.id,
 			Name:      call.name,
 			Arguments: call.arguments.String(),

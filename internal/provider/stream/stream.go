@@ -55,7 +55,7 @@ func Pump(ctx context.Context, events *httpclient.Events, folder Folder) <-chan 
 		emitDone := func() {
 			if !done {
 				done = true
-				emit(provider.Chunk{Kind: provider.ChunkDone})
+				emit(provider.DoneChunk{})
 			}
 		}
 
@@ -66,12 +66,12 @@ func Pump(ctx context.Context, events *httpclient.Events, folder Folder) <-chan 
 				return
 			}
 			if err != nil {
-				emit(provider.Chunk{Kind: provider.ChunkError, Err: err})
+				emit(provider.ErrorChunk{Err: err})
 				return
 			}
 			over, foldErr := folder.Fold(event.Data, emit)
 			if foldErr != nil {
-				emit(provider.Chunk{Kind: provider.ChunkError, Err: foldErr})
+				emit(provider.ErrorChunk{Err: foldErr})
 				return
 			}
 			if over {

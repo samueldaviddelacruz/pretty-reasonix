@@ -108,26 +108,24 @@ func (c *Controller) stream(ctx context.Context, turnID string, request provider
 		if ctx.Err() != nil {
 			return Round{}, ctx.Err()
 		}
-		switch chunk.Kind {
-		case provider.ChunkText:
-			round.Text += chunk.Text
-			c.sink.Emit(event.TextDelta{TurnID: turnID, ItemID: itemID, Text: chunk.Text})
-		case provider.ChunkReasoning:
-			round.Reasoning += chunk.Text
-			c.sink.Emit(event.ReasoningDelta{TurnID: turnID, ItemID: itemID, Text: chunk.Text})
-		case provider.ChunkToolCall:
-			if chunk.ToolCall != nil {
-				round.Calls = append(round.Calls, *chunk.ToolCall)
-			}
-		case provider.ChunkUsage:
-			if chunk.Usage != nil {
-				round.Usage = *chunk.Usage
-			}
-		case provider.ChunkDone:
+		switch part := chunk.(type) {
+		case provider.TextChunk:
+			round.Text += part.Text
+			c.sink.Emit(event.TextDelta{TurnID: turnID, ItemID: itemID, Text: part.Text})
+		case provider.ReasoningChunk:
+			round.Reasoning += part.Text
+			c.sink.Emit(event.ReasoningDelta{TurnID: turnID, ItemID: itemID, Text: part.Text})
+		case provider.ToolCallChunk:
+			// No nil check, because a variant that exists is populated. That is the whole reason for
+			// splitting the type rather than tagging a struct.
+			round.Calls = append(round.Calls, part.Call)
+		case provider.UsageChunk:
+			round.Usage = part.Usage
+		case provider.DoneChunk:
 			// A normal ending. The round is finished, not failed, and collecting continues only so that
 			// anything the vendor sent after its marker is not silently dropped.
-		case provider.ChunkError:
-			return Round{}, fmt.Errorf("%w (request %s)", chunk.Err, digest)
+		case provider.ErrorChunk:
+			return Round{}, fmt.Errorf("%w (request %s)", part.Err, digest)
 		}
 	}
 	return round, nil

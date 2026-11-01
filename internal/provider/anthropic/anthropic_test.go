@@ -333,17 +333,17 @@ data: {"type":"message_stop"}
 	var usage *provider.Usage
 	sawDone := false
 	for _, chunk := range chunks {
-		switch chunk.Kind {
-		case provider.ChunkReasoning:
-			reasoning.WriteString(chunk.Text)
-		case provider.ChunkText:
-			answer.WriteString(chunk.Text)
-		case provider.ChunkUsage:
-			usage = chunk.Usage
-		case provider.ChunkDone:
+		switch part := chunk.(type) {
+		case provider.ReasoningChunk:
+			reasoning.WriteString(part.Text)
+		case provider.TextChunk:
+			answer.WriteString(part.Text)
+		case provider.UsageChunk:
+			usage = &part.Usage
+		case provider.DoneChunk:
 			sawDone = true
-		case provider.ChunkToolCall, provider.ChunkError:
-			t.Errorf("an unexpected chunk: %v %+v", chunk.Kind, chunk.Err)
+		default:
+			t.Errorf("an unexpected chunk: %#v", chunk)
 		}
 	}
 	if reasoning.String() != "weighing" || answer.String() != "answer" {
@@ -392,8 +392,8 @@ data: {"type":"message_stop"}
 
 	var calls []provider.ToolCall
 	for _, chunk := range chunks {
-		if chunk.Kind == provider.ChunkToolCall {
-			calls = append(calls, *chunk.ToolCall)
+		if part, ok := chunk.(provider.ToolCallChunk); ok {
+			calls = append(calls, part.Call)
 		}
 	}
 	if len(calls) != 1 {
@@ -415,8 +415,8 @@ data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta"
 `
 	server, _ := serve(t, http.StatusOK, fixture)
 	for _, chunk := range stream(t, build(t, server.URL, nil), provider.Request{}) {
-		if chunk.Kind == provider.ChunkToolCall {
-			t.Fatalf("a half-parsed call was emitted: %+v", chunk.ToolCall)
+		if part, ok := chunk.(provider.ToolCallChunk); ok {
+			t.Fatalf("a half-parsed call was emitted: %+v", part.Call)
 		}
 	}
 }
@@ -431,14 +431,15 @@ data: {"type":"error","error":{"type":"overloaded_error","message":"the model is
 	chunks := stream(t, build(t, server.URL, nil), provider.Request{})
 
 	last := chunks[len(chunks)-1]
-	if last.Kind != provider.ChunkError {
-		t.Fatalf("the stream ended with %v, want a typed error", last.Kind)
+	if last.Kind() != provider.ChunkError {
+		t.Fatalf("the stream ended with %v, want a typed error", last.Kind())
 	}
-	if last.Err == nil || !strings.Contains(last.Err.Error(), "overloaded") {
-		t.Errorf("the error does not carry the vendor's message: %v", last.Err)
+	failure, ok := last.(provider.ErrorChunk)
+	if !ok || failure.Err == nil || !strings.Contains(failure.Err.Error(), "overloaded") {
+		t.Errorf("the error does not carry the vendor's message: %#v", last)
 	}
 	for _, chunk := range chunks {
-		if chunk.Kind == provider.ChunkDone {
+		if chunk.Kind() == provider.ChunkDone {
 			t.Error("a failed stream reported that it was done")
 		}
 	}
