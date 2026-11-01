@@ -2,11 +2,11 @@ package builtin
 
 import "slices"
 
-// Names lists the tools compiled into this program.
+// Names lists the tools compiled into this program, by name.
 //
-// Empty until the first built-ins land (E5-T3 onward). It exists now because the registry's contents are
-// a boot-time decision, and a caller that had to know the list itself would make that decision somewhere
-// else — which is how two frontends end up with different tool sets.
+// Names rather than values: every one of these needs a workspace root to be constructed, and the root is a
+// decision for the layer that wires a run rather than for this package. Listing them here is what lets a
+// caller check that what it registered is what was built.
 func Names() []string { return slices.Clone(names) }
 
-var names = []string{}
+var names = []string{"read_file", "ls", "glob", "grep"}
