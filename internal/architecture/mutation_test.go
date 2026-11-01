@@ -39,6 +39,14 @@ var mutants = []mutant{
 		mustFail: "TestTruncationRecognisesEveryVendorsWord",
 	},
 	{
+		name:     "a spill file is rewritten every time",
+		pkg:      "internal/tool",
+		source:   "internal/tool/bound.go",
+		old:      "if _, err := os.Stat(path); err == nil {",
+		new:      "if _, err := os.Stat(path); err != nil && err == nil {",
+		mustFail: "TestASpillIsNeverRewritten",
+	},
+	{
 		name:     "a writer no longer breaks the run of reads",
 		pkg:      "internal/agent",
 		source:   "internal/agent/batch.go",
