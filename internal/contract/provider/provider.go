@@ -86,42 +86,6 @@ type Request struct {
 	Effort Effort `json:"effort,omitempty"`
 }
 
-// ChunkKind is what one piece of a streamed completion is.
-type ChunkKind int
-
-// The kinds, in the order TDD §6.3 fixes. The order is part of the design rather than
-// an incidental detail, so TestChunkKindsAreStable pins it: a reorder is a semantic
-// change and should be made deliberately rather than by accident.
-const (
-	// ChunkText is a fragment of the model's answer.
-	ChunkText ChunkKind = iota
-	// ChunkReasoning is a fragment of its visible reasoning, where a vendor exposes
-	// one.
-	ChunkReasoning
-	// ChunkToolCall is a complete tool call, ready to run.
-	ChunkToolCall
-	// ChunkUsage reports tokens and cache accounting for the request.
-	ChunkUsage
-	// ChunkDone ends the stream. It is the last value sent, and the channel is closed
-	// after it.
-	ChunkDone
-	// ChunkError reports a failure that happened after the stream began.
-	ChunkError
-)
-
-// Chunk is one piece of a streamed completion. Errors travel in it rather than only through
-// Stream's error return, which was consumed at call time — so a failure after the first token has
-// nowhere else to go, and a truncated answer would be silent.
-//
-// It is not JSON: chunks never leave this process, and the event log is the durable record.
-type Chunk struct {
-	Kind     ChunkKind
-	Text     string
-	ToolCall *ToolCall
-	Usage    *Usage
-	Err      error
-}
-
 // Usage is what one request cost, in the terms a provider reports and this program has
 // to account for: tokens, how much of the prompt was served from cache, and why the
 // model stopped.

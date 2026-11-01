@@ -52,11 +52,11 @@ func (s *scriptedProvider) seen() []provider.Request {
 func textAnswer(parts ...string) []provider.Chunk {
 	chunks := make([]provider.Chunk, 0, len(parts)+2)
 	for _, part := range parts {
-		chunks = append(chunks, provider.Chunk{Kind: provider.ChunkText, Text: part})
+		chunks = append(chunks, provider.TextChunk{Text: part})
 	}
 	chunks = append(chunks,
-		provider.Chunk{Kind: provider.ChunkUsage, Usage: &provider.Usage{InputTokens: 11, OutputTokens: 3, FinishReason: "stop"}},
-		provider.Chunk{Kind: provider.ChunkDone})
+		provider.UsageChunk{Usage: provider.Usage{InputTokens: 11, OutputTokens: 3, FinishReason: "stop"}},
+		provider.DoneChunk{})
 	return chunks
 }
 
@@ -119,9 +119,9 @@ func TestATextRoundEmitsDeltasAsTheyArriveAndCommitsOnce(t *testing.T) {
 func TestOnlyCompleteToolCallsAreCollected(t *testing.T) {
 	t.Parallel()
 	p := &scriptedProvider{answers: [][]provider.Chunk{{
-		{Kind: provider.ChunkText, Text: "calling"},
-		{Kind: provider.ChunkToolCall, ToolCall: &provider.ToolCall{ID: "c1", Name: "read_file", Arguments: `{"path":"go.mod"}`}},
-		{Kind: provider.ChunkDone},
+		provider.TextChunk{Text: "calling"},
+		provider.ToolCallChunk{Call: provider.ToolCall{ID: "c1", Name: "read_file", Arguments: `{"path":"go.mod"}`}},
+		provider.DoneChunk{},
 	}}}
 	round, err := roundController(t, p, &recorder{}).Round(context.Background(), "turn-1", agent.TurnInput{})
 	if err != nil {
@@ -139,8 +139,8 @@ func TestARetryReplaysTheIdenticalRequest(t *testing.T) {
 	p := &scriptedProvider{answers: [][]provider.Chunk{
 		// First attempt: a stream cut after one token.
 		{
-			{Kind: provider.ChunkText, Text: "half"},
-			{Kind: provider.ChunkError, Err: &httpclient.StreamInterruptedError{Delivered: 1}},
+			provider.TextChunk{Text: "half"},
+			provider.ErrorChunk{Err: &httpclient.StreamInterruptedError{Delivered: 1}},
 		},
 		// Second attempt: a whole answer.
 		textAnswer("the whole answer"),
@@ -173,8 +173,8 @@ func TestASecondCutEndsTheTurn(t *testing.T) {
 	t.Parallel()
 	cut := func() []provider.Chunk {
 		return []provider.Chunk{
-			{Kind: provider.ChunkText, Text: "half"},
-			{Kind: provider.ChunkError, Err: &httpclient.StreamInterruptedError{Delivered: 1}},
+			provider.TextChunk{Text: "half"},
+			provider.ErrorChunk{Err: &httpclient.StreamInterruptedError{Delivered: 1}},
 		}
 	}
 	p := &scriptedProvider{answers: [][]provider.Chunk{cut(), cut(), cut()}}
@@ -193,8 +193,8 @@ func TestASecondCutEndsTheTurn(t *testing.T) {
 func TestAFailureCommitsNothing(t *testing.T) {
 	t.Parallel()
 	p := &scriptedProvider{answers: [][]provider.Chunk{{
-		{Kind: provider.ChunkText, Text: "half"},
-		{Kind: provider.ChunkError, Err: errors.New("the vendor gave up")},
+		provider.TextChunk{Text: "half"},
+		provider.ErrorChunk{Err: errors.New("the vendor gave up")},
 	}}}
 	c := roundController(t, p, &recorder{})
 
@@ -210,7 +210,7 @@ func TestAFailureCommitsNothing(t *testing.T) {
 // would be re-sent on every later request for no reason.
 func TestAnEmptyAnswerCommitsNothing(t *testing.T) {
 	t.Parallel()
-	p := &scriptedProvider{answers: [][]provider.Chunk{{{Kind: provider.ChunkDone}}}}
+	p := &scriptedProvider{answers: [][]provider.Chunk{{provider.DoneChunk{}}}}
 	c := roundController(t, p, &recorder{})
 
 	round, err := c.Round(context.Background(), "turn-1", agent.TurnInput{})

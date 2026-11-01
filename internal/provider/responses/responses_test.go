@@ -246,19 +246,19 @@ data: {"type":"response.completed","response":{"status":"completed","usage":{"in
 	var usage *provider.Usage
 	sawDone := false
 	for _, chunk := range chunks {
-		switch chunk.Kind {
-		case provider.ChunkReasoning:
-			reasoning.WriteString(chunk.Text)
-		case provider.ChunkText:
-			answer.WriteString(chunk.Text)
-		case provider.ChunkToolCall:
-			calls = append(calls, *chunk.ToolCall)
-		case provider.ChunkUsage:
-			usage = chunk.Usage
-		case provider.ChunkDone:
+		switch part := chunk.(type) {
+		case provider.ReasoningChunk:
+			reasoning.WriteString(part.Text)
+		case provider.TextChunk:
+			answer.WriteString(part.Text)
+		case provider.ToolCallChunk:
+			calls = append(calls, part.Call)
+		case provider.UsageChunk:
+			usage = &part.Usage
+		case provider.DoneChunk:
 			sawDone = true
-		case provider.ChunkError:
-			t.Fatalf("an unexpected error: %v", chunk.Err)
+		case provider.ErrorChunk:
+			t.Fatalf("an unexpected error: %v", part.Err)
 		}
 	}
 	if reasoning.String() != "weighing" || answer.String() != "answer" {
@@ -283,11 +283,15 @@ func TestAFailureIsTypedAndDoesNotReportSuccess(t *testing.T) {
 	server, _ := serve(t, fixture)
 	chunks := stream(t, build(t, server.URL+"/v1", ""), provider.Request{})
 
-	if len(chunks) != 1 || chunks[0].Kind != provider.ChunkError {
-		t.Fatalf("the stream produced %d chunks, want one typed error", len(chunks))
+	if len(chunks) != 1 {
+		t.Fatalf("the stream produced %d chunks, want exactly one", len(chunks))
 	}
-	if !strings.Contains(chunks[0].Err.Error(), "overloaded") {
-		t.Errorf("the error does not carry the vendor's message: %v", chunks[0].Err)
+	failure, ok := chunks[0].(provider.ErrorChunk)
+	if !ok {
+		t.Fatalf("the one chunk is %#v, want a typed error", chunks[0])
+	}
+	if !strings.Contains(failure.Err.Error(), "overloaded") {
+		t.Errorf("the error does not carry the vendor's message: %v", failure.Err)
 	}
 }
 

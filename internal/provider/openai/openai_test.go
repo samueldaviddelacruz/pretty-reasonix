@@ -95,7 +95,7 @@ func stream(t *testing.T, built provider.Provider, request provider.Request) []p
 func kindsIn(chunks []provider.Chunk) []provider.ChunkKind {
 	kinds := make([]provider.ChunkKind, 0, len(chunks))
 	for _, chunk := range chunks {
-		kinds = append(kinds, chunk.Kind)
+		kinds = append(kinds, chunk.Kind())
 	}
 	return kinds
 }
@@ -213,17 +213,17 @@ data: [DONE]
 	var usage *provider.Usage
 	sawDone := false
 	for _, chunk := range chunks {
-		switch chunk.Kind {
-		case provider.ChunkText:
-			text.WriteString(chunk.Text)
-		case provider.ChunkReasoning:
+		switch part := chunk.(type) {
+		case provider.TextChunk:
+			text.WriteString(part.Text)
+		case provider.ReasoningChunk:
 			t.Errorf("a text-only turn produced reasoning")
-		case provider.ChunkUsage:
-			usage = chunk.Usage
-		case provider.ChunkDone:
+		case provider.UsageChunk:
+			usage = &part.Usage
+		case provider.DoneChunk:
 			sawDone = true
-		case provider.ChunkToolCall, provider.ChunkError:
-			t.Errorf("an unexpected chunk: %v %+v", chunk.Kind, chunk.Err)
+		default:
+			t.Errorf("an unexpected chunk: %#v", chunk)
 		}
 	}
 	if text.String() != "Well hello" {
@@ -259,12 +259,12 @@ data: [DONE]
 
 	var reasoning, answer strings.Builder
 	for _, chunk := range chunks {
-		switch chunk.Kind {
-		case provider.ChunkReasoning:
-			reasoning.WriteString(chunk.Text)
-		case provider.ChunkText:
-			answer.WriteString(chunk.Text)
-		case provider.ChunkToolCall, provider.ChunkUsage, provider.ChunkDone, provider.ChunkError:
+		switch part := chunk.(type) {
+		case provider.ReasoningChunk:
+			reasoning.WriteString(part.Text)
+		case provider.TextChunk:
+			answer.WriteString(part.Text)
+		default:
 			// Not what this case is about; the stream, tool-call and error cases cover them.
 		}
 	}
@@ -300,11 +300,11 @@ data: [DONE]
 
 	var calls []provider.ToolCall
 	for _, chunk := range chunks {
-		if chunk.Kind == provider.ChunkToolCall {
-			calls = append(calls, *chunk.ToolCall)
+		if part, ok := chunk.(provider.ToolCallChunk); ok {
+			calls = append(calls, part.Call)
 		}
-		if chunk.Kind == provider.ChunkText || chunk.Kind == provider.ChunkReasoning {
-			t.Errorf("a tool-call turn produced %v", chunk.Kind)
+		if chunk.Kind() == provider.ChunkText || chunk.Kind() == provider.ChunkReasoning {
+			t.Errorf("a tool-call turn produced %v", chunk.Kind())
 		}
 	}
 	if len(calls) != 2 {
@@ -330,8 +330,8 @@ func TestAnUnfinishedToolCallIsNotEmitted(t *testing.T) {
 	chunks := stream(t, kind(t, server.URL), provider.Request{})
 
 	for _, chunk := range chunks {
-		if chunk.Kind == provider.ChunkToolCall {
-			t.Fatalf("a half-parsed call was emitted: %+v", chunk.ToolCall)
+		if part, ok := chunk.(provider.ToolCallChunk); ok {
+			t.Fatalf("a half-parsed call was emitted: %+v", part.Call)
 		}
 	}
 }
@@ -350,8 +350,9 @@ data: {"error":{"message":"the model is overloaded","type":"server_error"}}
 		t.Fatalf("the stream ended with %v, want a typed error last", kinds)
 	}
 	last := chunks[len(chunks)-1]
-	if last.Err == nil || !strings.Contains(last.Err.Error(), "overloaded") {
-		t.Errorf("the error does not carry the vendor's message: %v", last.Err)
+	failure, ok := last.(provider.ErrorChunk)
+	if !ok || failure.Err == nil || !strings.Contains(failure.Err.Error(), "overloaded") {
+		t.Errorf("the error does not carry the vendor's message: %#v", last)
 	}
 }
 
