@@ -68,7 +68,7 @@ func (c *Controller) Round(ctx context.Context, turnID string, input TurnInput) 
 		// or a second cut, or a caller who has gone away, ends the turn with the error.
 		_, cut := errors.AsType[*httpclient.StreamInterruptedError](err)
 		if !cut || attempt >= 2 || ctx.Err() != nil {
-			return Round{}, err
+			return round, err
 		}
 	}
 
@@ -106,7 +106,7 @@ func (c *Controller) stream(ctx context.Context, turnID string, request provider
 	var round Round
 	for chunk := range chunks {
 		if ctx.Err() != nil {
-			return Round{}, ctx.Err()
+			return round, ctx.Err()
 		}
 		switch part := chunk.(type) {
 		case provider.TextChunk:
@@ -125,10 +125,37 @@ func (c *Controller) stream(ctx context.Context, turnID string, request provider
 			// A normal ending. The round is finished, not failed, and collecting continues only so that
 			// anything the vendor sent after its marker is not silently dropped.
 		case provider.ErrorChunk:
-			return Round{}, fmt.Errorf("%w (request %s)", part.Err, digest)
+			// The partial round travels with the error: what arrived before the failure is exactly what a
+			// recovery record needs to describe.
+			return round, fmt.Errorf("%w (request %s)", part.Err, digest)
 		}
 	}
+	// Checked after the loop as well as inside it: a provider whose channel closes when the context is
+	// cancelled ends the loop normally, and a cancelled turn that reports nil would be recorded as a
+	// finished one.
+	if err := ctx.Err(); err != nil {
+		return round, err
+	}
 	return round, nil
+}
+
+// Progress describes what this round had done when it stopped.
+//
+// A round that returned an error carries no result, so the recovery record has to describe what it managed
+// from the fields it filled before it failed. That is the difference between "the turn was interrupted" and
+// "the turn was interrupted after it had collected two calls to read_file".
+func (r Round) Progress() []string {
+	steps := make([]string, 0, 2+len(r.Calls))
+	if r.Text != "" {
+		steps = append(steps, fmt.Sprintf("received %d bytes of answer", len(r.Text)))
+	}
+	if r.Reasoning != "" {
+		steps = append(steps, "the model was reasoning")
+	}
+	for _, call := range r.Calls {
+		steps = append(steps, "collected a call to "+call.Name)
+	}
+	return steps
 }
 
 // commit records the round in the transcript and reports it.
