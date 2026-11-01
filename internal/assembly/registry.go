@@ -2,12 +2,16 @@ package assembly
 
 import (
 	"errors"
+	"os"
 	"sync"
 
 	"pretty-reasonix/internal/contract/provider"
+	contracttool "pretty-reasonix/internal/contract/tool"
 	"pretty-reasonix/internal/provider/anthropic"
 	"pretty-reasonix/internal/provider/openai"
 	"pretty-reasonix/internal/provider/responses"
+	"pretty-reasonix/internal/tool"
+	"pretty-reasonix/internal/tool/builtin"
 )
 
 // ErrRegistrationFailed reports a kind that could not be registered, wrapping the reason.
@@ -49,4 +53,24 @@ func RegisterProviders() error {
 		}
 	})
 	return errRegister
+}
+
+// RegisterTools adds the compiled-in read-only tools to a registry, confined to one workspace root.
+//
+// The root is the argument rather than a field because confinement is what makes a tool safe to hand a model:
+// os.Root refuses a path that climbs out, so a tool cannot be talked into reading what is above the workspace
+// however its arguments are written.
+func RegisterTools(registry *tool.Registry, root *os.Root) error {
+	tools := []contracttool.Tool{
+		builtin.NewReadFile(root),
+		builtin.NewLs(root),
+		builtin.NewGlob(root),
+		builtin.NewGrep(root),
+	}
+	for _, one := range tools {
+		if err := registry.Add(one); err != nil {
+			return errors.Join(ErrRegistrationFailed, err)
+		}
+	}
+	return nil
 }
