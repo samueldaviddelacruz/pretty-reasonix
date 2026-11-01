@@ -195,6 +195,11 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
 - **E4-T9 · Progress watch and preset plumbing** — `size:M` · deps: `E4-T4` · labels: `type:feature`, `area:agent`, `milestone:m1`
   - AC: idle tool rounds and repeated input-token multiples are counted; the watch **reports** by default and pauses only when configured to.
   - AC: `--preset balanced|delivery` changes host policy (readiness strictness) without changing the provider-visible tool list (test).
+- **E4-T10 · Execute a planned batch** — `size:M` · deps: `E4-T5`, `E5-T3` · labels: `type:feature`, `area:agent`, `risk:perf`, `milestone:m0`
+  - Found by reading rather than by running: E4-T5 cuts a batch into segments and handed them to nobody, so every ticket around it could pass while no tool was ever called.
+  - AC: a plan's segments run in order; the calls in a parallel segment run concurrently with results written by index into a pre-sliced slice — never appended from goroutines ([#69]) — and no segment starts more than `MaxParallel` calls at once.
+  - AC: `Result.Err` is fed back to the model as an ordinary tool result and never ends the turn, while a tool's own `error` return is reported as a broken tool; both reach the transcript through one path and are bounded once on entry (E5-T3), so the two failure kinds cannot drift into two shapes.
+  - AC: a cancelled turn starts no further calls and keeps every result it already has, so a batch stopped halfway is recorded as half done rather than discarded — which is what the recovery record (E4-T6) then describes.
 
 ### E5 · Tool framework and the local toolbelt — M0–M1
 
