@@ -76,7 +76,9 @@ func TestALiveProviderAnswers(t *testing.T) {
 		Transcript: transcript,
 		Sink:       sink,
 		Policy: agent.Policy{
-			Model:  model.Model{Provider: kind, Name: modelName},
+			// A cap, so this test costs what it says it costs rather than whatever the vendor's
+			// default output budget happens to be. Without it the probe is cheap by luck.
+			Model:  model.Model{Provider: kind, Name: modelName, MaxOutputTokens: 64},
 			Effort: provider.EffortUnset,
 			Preset: agent.PresetBalanced,
 		},
