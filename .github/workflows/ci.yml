@@ -122,6 +122,18 @@ jobs:
       # exactly the point of the job existing before the tests do.
       - name: Integration tier
         run: go test -race -tags integration ./...
+      # The one step that talks to a real vendor, and the only one that can notice drift: every other
+      # test here runs against stubs and recorded fixtures, so a field the vendor renames passes all of
+      # them and breaks the agent. It skips when the secret is absent, which is what happens on a fork.
+      #
+      # Cost is one request of a handful of tokens. Spent only on a schedule and on demand, never on a
+      # push, because a vendor rate limit is not a change anybody made.
+      - name: Live provider probe
+        env:
+          PRX_PROBE_BASE_URL: ${{ secrets.PRX_PROBE_BASE_URL }}
+          PRX_PROBE_MODEL: ${{ secrets.PRX_PROBE_MODEL }}
+          PRX_PROBE_API_KEY: ${{ secrets.PRX_PROBE_API_KEY }}
+        run: go test -tags integration -run TestALiveProviderAnswers ./internal/assembly/ -v
       # Generated or model-written tests get checked here: a test that cannot fail looks exactly
       # like a passing one, and this is the only step that tells them apart.
       - name: Mutation check
