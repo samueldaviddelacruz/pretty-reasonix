@@ -1,6 +1,6 @@
 //go:build integration
 
-package agent_test
+package assembly_test
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"pretty-reasonix/internal/agent"
+	"pretty-reasonix/internal/assembly"
 	"pretty-reasonix/internal/contract/event"
 	"pretty-reasonix/internal/contract/provider"
 	"pretty-reasonix/internal/model"
@@ -28,7 +29,7 @@ import (
 //	PRX_PROBE_BASE_URL=https://api.deepseek.com \
 //	PRX_PROBE_MODEL=deepseek-chat \
 //	PRX_PROBE_API_KEY=sk-... \
-//	go test -tags integration -run TestALiveProviderAnswers ./internal/agent/ -v
+//	go test -tags integration -run TestALiveProviderAnswers ./internal/assembly/ -v
 //
 // PRX_PROBE_KIND defaults to openai; use anthropic or responses for the others.
 // rate limit into a flaky test, and this is the one test whose cost is somebody else's money.
@@ -50,6 +51,12 @@ func TestALiveProviderAnswers(t *testing.T) {
 	// A local endpoint needs no key; a hosted one will refuse without it, and that refusal is a result
 	// rather than a reason to fail earlier.
 	key := os.Getenv("PRX_PROBE_API_KEY")
+
+	// The kinds are registered by internal/assembly and nowhere else, so a probe that a person runs by hand
+	// needs the same wiring the frontend will: without this the registry is empty and provider.New says so.
+	if err := assembly.RegisterProviders(); err != nil {
+		t.Fatalf("registering the provider kinds: %v", err)
+	}
 
 	live, err := provider.New(kind, provider.Config{
 		Name:        "probe",
