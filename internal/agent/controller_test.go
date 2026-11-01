@@ -45,7 +45,11 @@ type stubProvider struct{}
 func (stubProvider) Name() string { return "stub" }
 
 func (stubProvider) Stream(context.Context, provider.Request) (<-chan provider.Chunk, error) {
-	return nil, errors.New("the seam does not call the provider yet")
+	chunks := make(chan provider.Chunk, 2)
+	chunks <- provider.TextChunk{Text: "ok"}
+	chunks <- provider.DoneChunk{}
+	close(chunks)
+	return chunks, nil
 }
 
 func policyWith(preset agent.Preset) agent.Policy {
@@ -113,8 +117,10 @@ func TestThePolicyBlockIsHostAuthoredAndAppendedToTheUserTurn(t *testing.T) {
 	<-control.Done()
 
 	messages := c.Messages()
-	if len(messages) != 2 {
-		t.Fatalf("%d messages, want the input and the policy block", len(messages))
+	// The input, the policy block, and the answer the round committed. Three is the turn now that it
+	// actually calls the model, and the block position is what matters: straight after the person words.
+	if len(messages) != 3 {
+		t.Fatalf("%d messages, want the input, the policy block and the answer", len(messages))
 	}
 	if messages[0].Content != "fix the build" || messages[0].HostAuthored {
 		t.Errorf("the first message is %+v, want the person's words and no host marker", messages[0])
@@ -167,7 +173,7 @@ func TestAPresetChangeCannotAlterTheTurnThatIsRunning(t *testing.T) {
 	messages := c.Messages()
 	var blocks []string
 	for _, m := range messages {
-		if m.HostAuthored {
+		if m.HostAuthored && strings.HasSuffix(m.ID, "/policy") {
 			blocks = append(blocks, m.Content)
 		}
 	}

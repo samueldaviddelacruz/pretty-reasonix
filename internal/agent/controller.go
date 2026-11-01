@@ -44,6 +44,7 @@ type Controller struct {
 
 	mu      sync.Mutex
 	policy  Policy
+	pending *Recovery
 	current *turn
 }
 
@@ -174,9 +175,18 @@ func (c *Controller) run(ctx context.Context, running *turn, input TurnInput, po
 	})
 	c.sink.Emit(event.TurnStarted{TurnID: running.id, Input: input.Text})
 
-	// The policy goes after the user's own words and never into the system prompt. The system prompt is
-	// the prefix a vendor's cache is keyed on, so rewriting it every turn would discard the cache on
-	// every request; and a host-authored block is exactly the kind of thing that would change.
+	// A record left by an earlier turn goes in before this one's answer is requested, so the model starts
+	// the turn knowing what the last one was doing rather than asking the person to explain again.
+	if pending := c.takeRecovery(); pending != nil {
+		c.transcript.Append(session.Message{
+			ID:           running.id + "/recovery",
+			Role:         provider.RoleUser,
+			Content:      pending.Render(),
+			HostAuthored: true,
+		})
+		c.sink.Emit(event.Notice{Level: event.NoticeInfo, Code: "turn.recovered", Text: pending.TurnID})
+	}
+	// Placed after the input and the policy so the record reads as context rather than as the request.
 	c.transcript.Append(session.Message{
 		ID:           running.id + "/policy",
 		Role:         provider.RoleUser,
@@ -184,11 +194,45 @@ func (c *Controller) run(ctx context.Context, running *turn, input TurnInput, po
 		HostAuthored: true,
 	})
 
-	status := event.StatusDone
+	// Checked before the request rather than after it: a cancelled turn must not spend a request, and
+	// "cancelled" must not be reported as "failed" merely because a provider was reached and refused.
 	if ctx.Err() != nil {
-		status = event.StatusCancelled
+		c.recordRecovery(Recovery{TurnID: running.id, Input: input.Text, Cancelled: true})
+		c.sink.Emit(event.TurnDone{TurnID: running.id, Status: event.StatusCancelled})
+		return
 	}
-	c.sink.Emit(event.TurnDone{TurnID: running.id, Status: status})
+
+	round, err := c.Round(ctx, running.id, input)
+	switch {
+	case err == nil:
+		c.sink.Emit(event.TurnDone{TurnID: running.id, Status: event.StatusDone, Usage: round.Usage})
+	case errors.Is(err, context.Canceled):
+		// Stopped rather than broken. The record says so, because the next turn should resume the work
+		// rather than start over.
+		c.recordRecovery(Recovery{TurnID: running.id, Input: input.Text, Cancelled: true, Progress: round.Progress()})
+		c.sink.Emit(event.TurnDone{TurnID: running.id, Status: event.StatusCancelled, Usage: round.Usage})
+	default:
+		c.recordRecovery(Recovery{TurnID: running.id, Input: input.Text, Err: err, Progress: round.Progress()})
+		c.sink.Emit(event.Notice{Level: event.NoticeError, Code: "turn.failed", Text: err.Error()})
+		c.sink.Emit(event.TurnDone{TurnID: running.id, Status: event.StatusFailed, Usage: round.Usage})
+	}
+}
+
+// recordRecovery keeps what the next turn should know, replacing any record still waiting: two interrupted
+// turns in a row describe the most recent one, because that is where the work actually stopped.
+func (c *Controller) recordRecovery(r Recovery) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pending = &r
+}
+
+// takeRecovery hands over the pending record, if there is one, exactly once.
+func (c *Controller) takeRecovery() *Recovery {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	pending := c.pending
+	c.pending = nil
+	return pending
 }
 
 // Messages is the transcript in order, including entries a request never sees.
