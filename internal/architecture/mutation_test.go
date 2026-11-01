@@ -39,6 +39,14 @@ var mutants = []mutant{
 		mustFail: "TestTruncationRecognisesEveryVendorsWord",
 	},
 	{
+		name:     "a writer no longer breaks the run of reads",
+		pkg:      "internal/agent",
+		source:   "internal/agent/batch.go",
+		old:      "\t\tflush()\n\t\tplan.Segments = append(plan.Segments, Segment{Calls: []provider.ToolCall{call}})\n\t}",
+		new:      "\t\tplan.Segments = append(plan.Segments, Segment{Calls: []provider.ToolCall{call}})\n\t}",
+		mustFail: "TestOnlyContiguousReadsAreGrouped",
+	},
+	{
 		name:     "a synthetic message is inserted into the request",
 		pkg:      "internal/agent",
 		source:   "internal/agent/round.go",
