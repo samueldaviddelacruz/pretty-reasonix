@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -171,7 +173,7 @@ func (l Ls) Execute(_ context.Context, args json.RawMessage) (tool.Result, error
 	defer func() { _ = dir.Close() }()
 
 	entries, err := dir.ReadDir(-1)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return tool.Result{Err: fmt.Errorf("%s: %w", in.Path, err)}, nil
 	}
 	names := make([]string, 0, len(entries))
@@ -215,17 +217,19 @@ func (g Glob) Execute(ctx context.Context, args json.RawMessage) (tool.Result, e
 		return tool.Result{}, fmt.Errorf("glob arguments: %w", err)
 	}
 	if in.Pattern == "" {
-		return tool.Result{Err: fmt.Errorf("glob needs a pattern")}, nil
+		return tool.Result{Err: errors.New("glob needs a pattern")}, nil
 	}
 	matcher, err := compileGlob(in.Pattern)
 	if err != nil {
 		return tool.Result{Err: err}, nil
 	}
 
-	deadline := time.Now().Add(SearchTimeout)
+	searchCtx, cancel := context.WithTimeout(ctx, SearchTimeout)
+	defer cancel()
+
 	var matches []string
 	truncated := false
-	walkErr := walkTree(ctx, g.root, func(rel string, entry fs.DirEntry) bool {
+	walkErr := walkTree(searchCtx, g.root, func(rel string, entry fs.DirEntry) bool {
 		if entry.IsDir() {
 			return true
 		}
@@ -238,7 +242,7 @@ func (g Glob) Execute(ctx context.Context, args json.RawMessage) (tool.Result, e
 		}
 		matches = append(matches, rel)
 		return true
-	}, deadline)
+	})
 
 	sort.Strings(matches)
 	switch {
@@ -289,11 +293,13 @@ func (g Grep) Execute(ctx context.Context, args json.RawMessage) (tool.Result, e
 		start = "."
 	}
 
-	deadline := time.Now().Add(SearchTimeout)
+	searchCtx, cancel := context.WithTimeout(ctx, SearchTimeout)
+	defer cancel()
+
 	var found []string
 	truncated := false
 	stop := false
-	walkErr := walkTree(ctx, g.root, func(rel string, entry fs.DirEntry) bool {
+	walkErr := walkTree(searchCtx, g.root, func(rel string, entry fs.DirEntry) bool {
 		if stop || entry.IsDir() || !under(rel, start) || (only != nil && !only.MatchString(rel)) {
 			return !stop
 		}
@@ -304,7 +310,7 @@ func (g Grep) Execute(ctx context.Context, args json.RawMessage) (tool.Result, e
 			stop = true
 		}
 		return !stop
-	}, deadline)
+	})
 
 	sort.Strings(found)
 	switch {
@@ -356,7 +362,7 @@ func grepFile(root *os.Root, rel string, expression *regexp.Regexp, budget int) 
 //
 // One walk for both search tools: they differ in what they keep, not in how they get there, and two copies of
 // this would drift on the day somebody adds a directory to the skip list.
-func walkTree(ctx context.Context, root *os.Root, visit func(rel string, entry fs.DirEntry) bool, deadline time.Time) error {
+func walkTree(ctx context.Context, root *os.Root, visit func(rel string, entry fs.DirEntry) bool) error {
 	return fs.WalkDir(root.FS(), ".", func(rel string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			// A directory that cannot be read is skipped rather than fatal: a search that returns everything
@@ -369,7 +375,7 @@ func walkTree(ctx context.Context, root *os.Root, visit func(rel string, entry f
 		if entry.IsDir() && rel != "." && noise[entry.Name()] {
 			return fs.SkipDir
 		}
-		if time.Now().After(deadline) || ctx.Err() != nil {
+		if ctx.Err() != nil {
 			return fs.SkipAll
 		}
 		if !visit(rel, entry) {
@@ -416,14 +422,7 @@ func under(rel, dir string) bool {
 }
 
 // bytes0 reports whether a sample looks binary, which is a NUL in the first block.
-func bytes0(sample []byte) bool {
-	for _, b := range sample {
-		if b == 0 {
-			return true
-		}
-	}
-	return false
-}
+func bytes0(sample []byte) bool { return slices.Contains(sample, 0) }
 
 var (
 	readFileSchema = json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"File path, relative to the workspace"},"offset":{"type":"integer","description":"Lines to skip before returning any"},"limit":{"type":"integer","description":"Maximum lines to return; defaults to 2000"}},"required":["path"]}`)
