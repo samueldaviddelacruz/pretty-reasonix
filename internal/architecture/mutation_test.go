@@ -39,6 +39,14 @@ var mutants = []mutant{
 		mustFail: "TestTruncationRecognisesEveryVendorsWord",
 	},
 	{
+		name:     "results follow the finish order instead of the call order",
+		pkg:      "internal/agent",
+		source:   "internal/agent/execute.go",
+		old:      "\twg.Wait()\n\treturn results",
+		new:      "\twg.Wait()\n\tslices.Reverse(results)\n\treturn results",
+		mustFail: "TestResultsKeepCallOrderWhateverTheFinishOrder",
+	},
+	{
 		name:     "a spill file is rewritten every time",
 		pkg:      "internal/tool",
 		source:   "internal/tool/bound.go",
