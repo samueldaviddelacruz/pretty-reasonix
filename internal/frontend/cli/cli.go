@@ -15,7 +15,10 @@ import (
 	"fmt"
 	"io"
 
+	"os"
+
 	"pretty-reasonix/internal/config"
+	"pretty-reasonix/internal/frontend/run"
 	"pretty-reasonix/internal/version"
 )
 
@@ -55,6 +58,12 @@ func binaryVersion() string {
 func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		return emit(stdout, append([]string{binaryVersion()}, usageLines...), exitOK)
+	}
+
+	// The headless frontend writes as it goes, so it cannot go through the buffered path below: an answer
+	// composed into a []string would arrive after the turn ended, which is the opposite of streaming.
+	if args[0] == "run" {
+		return run.Run(args[1:], os.Stdin, stdout, stderr)
 	}
 
 	switch args[0] {
