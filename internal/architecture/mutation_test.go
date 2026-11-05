@@ -39,6 +39,14 @@ var mutants = []mutant{
 		mustFail: "TestTruncationRecognisesEveryVendorsWord",
 	},
 	{
+		name:     "a tool's report about the world stops reaching the model",
+		pkg:      "internal/agent",
+		source:   "internal/agent/execute.go",
+		old:      "		case result.News != nil:",
+		new:      "		case result.News == nil && false:",
+		mustFail: "TestAToolReportingBadNewsStillSaysSomething",
+	},
+	{
 		name:     "a turn runs one round instead of looping",
 		pkg:      "internal/agent",
 		source:   "internal/agent/controller.go",

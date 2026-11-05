@@ -55,7 +55,7 @@ type ToolSchema struct {
 // vocabulary the two share.
 type Message struct {
 	Role    Role   `json:"role"`
-	Content string `json:"content,omitempty"`
+	Content string `json:"content"`
 	// ToolCalls is what the assistant asked for. A turn may carry text as well, which
 	// is why one is not exclusive of the other.
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
