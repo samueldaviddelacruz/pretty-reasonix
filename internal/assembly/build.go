@@ -123,6 +123,10 @@ func Build(options Options) (*Run, error) {
 		Models:  []model.Model{resolved},
 		Tools:   registry.Names(),
 		Schemas: registry.Schemas(),
+		// Handed over here rather than defaulted in the controller: a turn without a registry can only
+		// talk, and that should be a decision, not an accident.
+		Registry: registry,
+		Boundary: tool.Boundary{Dir: filepath.Join(paths.SessionsDir, "spill")},
 	})
 	if err != nil {
 		return nil, err

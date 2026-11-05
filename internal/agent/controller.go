@@ -10,6 +10,7 @@ import (
 	"pretty-reasonix/internal/contract/provider"
 	"pretty-reasonix/internal/model"
 	"pretty-reasonix/internal/session"
+	sessiontool "pretty-reasonix/internal/tool"
 )
 
 // Deps is what a controller is built from.
@@ -24,6 +25,13 @@ type Deps struct {
 	Policy Policy
 	Models []model.Model
 	Tools  []string
+	// Registry is the tools a call may name. Required for a turn that can do anything but talk, and checked
+	// at boot so a missing one is an error rather than a turn that silently ignores every tool call.
+	Registry *sessiontool.Registry
+	// Boundary bounds every tool result on entry (E5-T3).
+	Boundary sessiontool.Boundary
+	// MaxSteps bounds the loop; zero means DefaultMaxSteps.
+	MaxSteps int
 	// Schemas are the tool definitions the model is shown. They arrive from the tool registry rather
 	// than being derived from Tools, because a name is not a description and a schema is.
 	Schemas []provider.ToolSchema
@@ -41,6 +49,9 @@ type Controller struct {
 	models     []model.Model
 	tools      []string
 	schemas    []provider.ToolSchema
+	registry   *sessiontool.Registry
+	boundary   sessiontool.Boundary
+	maxSteps   int
 
 	mu      sync.Mutex
 	policy  Policy
@@ -70,6 +81,9 @@ func NewController(d Deps) (*Controller, error) {
 		models:     d.Models,
 		tools:      d.Tools,
 		schemas:    d.Schemas,
+		registry:   d.Registry,
+		boundary:   d.Boundary,
+		maxSteps:   maxStepsOr(d.MaxSteps),
 		policy:     policy,
 	}, nil
 }
@@ -202,20 +216,74 @@ func (c *Controller) run(ctx context.Context, running *turn, input TurnInput, po
 		return
 	}
 
-	round, err := c.Round(ctx, running.id, input)
-	switch {
-	case err == nil:
-		c.sink.Emit(event.TurnDone{TurnID: running.id, Status: event.StatusDone, Usage: round.Usage})
-	case errors.Is(err, context.Canceled):
-		// Stopped rather than broken. The record says so, because the next turn should resume the work
-		// rather than start over.
+	// The turn is a loop: a round, then whatever tools it asked for, then another round. One round would
+	// answer the first question and ignore every tool call inside the answer, which is what this ticket
+	// exists to fix — the tools and the executor both worked and nothing joined them.
+	for range c.maxSteps {
+		round, err := c.Round(ctx, running.id, input)
+		if err != nil {
+			c.endWithError(running, input, round, err)
+			return
+		}
+		if len(round.Calls) == 0 {
+			c.sink.Emit(event.TurnDone{TurnID: running.id, Status: event.StatusDone, Usage: round.Usage})
+			return
+		}
+
+		outcome := Executor{Registry: c.registry, Boundary: c.boundary}.Run(ctx, PlanBatch(round.Calls, c.registry))
+		for _, message := range outcome.Messages(running.id) {
+			c.transcript.Append(message)
+		}
+		for _, result := range outcome.Results {
+			c.sink.Emit(event.ToolResult{
+				CallID:    result.Call.ID,
+				Output:    result.Result.Visible,
+				Truncated: result.Result.Truncated,
+				Err:       result.Broken,
+			})
+		}
+		switch {
+		case outcome.Interrupted:
+			c.recordRecovery(Recovery{TurnID: running.id, Input: input.Text, Cancelled: true})
+			c.sink.Emit(event.TurnDone{TurnID: running.id, Status: event.StatusCancelled})
+			return
+		case outcome.Cut:
+			// A decision barrier ended the batch. Approvals are E7's, so the turn stops honestly rather
+			// than reporting the held-back calls as refused.
+			c.sink.Emit(event.TurnDone{TurnID: running.id, Status: event.StatusBlocked})
+			return
+		}
+	}
+	// The budget ran out with the model still asking. Blocked rather than done, because the turn did not
+	// finish and saying so is the difference between a resumable turn and a lost one.
+	c.sink.Emit(event.TurnDone{TurnID: running.id, Status: event.StatusBlocked})
+}
+
+// endWithError records what a failed round had managed and reports it.
+func (c *Controller) endWithError(running *turn, input TurnInput, round Round, err error) {
+	if errors.Is(err, context.Canceled) {
+		// Stopped rather than broken, so the next turn resumes instead of starting over.
 		c.recordRecovery(Recovery{TurnID: running.id, Input: input.Text, Cancelled: true, Progress: round.Progress()})
 		c.sink.Emit(event.TurnDone{TurnID: running.id, Status: event.StatusCancelled, Usage: round.Usage})
-	default:
-		c.recordRecovery(Recovery{TurnID: running.id, Input: input.Text, Err: err, Progress: round.Progress()})
-		c.sink.Emit(event.Notice{Level: event.NoticeError, Code: "turn.failed", Text: err.Error()})
-		c.sink.Emit(event.TurnDone{TurnID: running.id, Status: event.StatusFailed, Usage: round.Usage})
+		return
 	}
+	c.recordRecovery(Recovery{TurnID: running.id, Input: input.Text, Err: err, Progress: round.Progress()})
+	c.sink.Emit(event.Notice{Level: event.NoticeError, Code: "turn.failed", Text: err.Error()})
+	c.sink.Emit(event.TurnDone{TurnID: running.id, Status: event.StatusFailed, Usage: round.Usage})
+}
+
+// DefaultMaxSteps is how many round trips a turn may take when nobody says.
+//
+// Finite because a model that keeps asking forever is a bug rather than a long task, and generous because one
+// tool call per round is ordinary: read, edit, run, read the failure, edit again.
+const DefaultMaxSteps = 12
+
+// maxStepsOr turns "unset" into the default without letting zero mean infinity.
+func maxStepsOr(steps int) int {
+	if steps <= 0 {
+		return DefaultMaxSteps
+	}
+	return steps
 }
 
 // recordRecovery keeps what the next turn should know, replacing any record still waiting: two interrupted

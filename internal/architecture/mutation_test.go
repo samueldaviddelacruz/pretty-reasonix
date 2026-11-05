@@ -39,6 +39,14 @@ var mutants = []mutant{
 		mustFail: "TestTruncationRecognisesEveryVendorsWord",
 	},
 	{
+		name:     "a turn runs one round instead of looping",
+		pkg:      "internal/agent",
+		source:   "internal/agent/controller.go",
+		old:      "for range c.maxSteps {",
+		new:      "for range 1 {",
+		mustFail: "TestATurnRunsTheToolAndGoesAroundAgain",
+	},
+	{
 		name:     "results follow the finish order instead of the call order",
 		pkg:      "internal/agent",
 		source:   "internal/agent/execute.go",
