@@ -38,3 +38,9 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# CodeGraph index: a rebuildable artifact, not source.
+/.codegraph/
+
+# Local agent tooling config: machine-specific, not the project's.
+/.claude/
