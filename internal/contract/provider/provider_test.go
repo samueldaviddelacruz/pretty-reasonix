@@ -263,3 +263,17 @@ func TestTheRolesAreTheValuesThatReachTheWire(t *testing.T) {
 		}
 	}
 }
+
+// TestAnEmptyContentIsStillSent is the bug a provider rejected, and it is the same zero-value trap Temperature
+// already avoids one field away: a message with no content is a message a vendor may refuse, and omitting the
+// field turns "empty" into "malformed".
+func TestAnEmptyContentIsStillSent(t *testing.T) {
+	t.Parallel()
+	body, err := json.Marshal(provider.Message{Role: provider.RoleTool, ToolCallID: "call-1"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(body), `"content":""`) {
+		t.Errorf("a message with empty content omitted the field, which a vendor reads as malformed:\n%s", body)
+	}
+}

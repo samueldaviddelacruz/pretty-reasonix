@@ -272,3 +272,29 @@ func TestThePlannerAndExecutorShareOneCap(t *testing.T) {
 		t.Logf("a caller asking for %d is clamped to %d", exec.Concurrency, agent.MaxParallel)
 	}
 }
+
+// TestAToolReportingBadNewsStillSaysSomething is the regression a live run found.
+//
+// A tool that reached the world and was told "no" sets Result.Err and has no output. Two boundaries in a row
+// dropped it: the boundary did not copy it into the bounded result, and the message renderer had no case for
+// it, so the model received an empty tool message and the provider rejected the whole request. Tested in
+// isolation, Result.Err looked fine.
+func TestAToolReportingBadNewsStillSaysSomething(t *testing.T) {
+	t.Parallel()
+	reg, exec := batch(t, fake{name: "read_file", news: errors.New("nope.txt: no such file or directory")})
+	outcome := exec.Run(context.Background(), agent.PlanBatch(callsOf("read_file"), reg))
+
+	if outcome.Results[0].News == nil {
+		t.Fatal("the tool's report about the world was dropped before anything could read it")
+	}
+	messages := outcome.Messages("turn-1")
+	if messages[0].Content == "" {
+		t.Fatal("the model was told nothing about why the tool produced nothing")
+	}
+	if !strings.Contains(messages[0].Content, "no such file") {
+		t.Errorf("the message does not carry the tool's words: %q", messages[0].Content)
+	}
+	if messages[0].Role != provider.RoleTool {
+		t.Errorf("the message arrived as %q, want a tool result", messages[0].Role)
+	}
+}
