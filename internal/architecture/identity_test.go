@@ -64,6 +64,11 @@ func TestIdentityStringsHaveOneOwner(t *testing.T) {
 			}
 			return nil
 		}
+		if !entry.Type().IsRegular() {
+			// A socket or a fifo is not text this repository owns. The index keeps a daemon socket, and
+			// walking it used to fail the whole test on a read error.
+			return nil
+		}
 		rel, relErr := filepath.Rel(root, path)
 		if relErr != nil {
 			return relErr
@@ -239,4 +244,7 @@ func allowed(rel string) (string, bool) {
 var skippingDirs = map[string]bool{
 	".git": true, ".reasonix": true, "bin": true, "dist": true,
 	"testdata": true, "node_modules": true,
+	// A code index is a rebuildable artifact, and it keeps a daemon socket: reading it is an error rather
+	// than a finding.
+	".codegraph": true,
 }
