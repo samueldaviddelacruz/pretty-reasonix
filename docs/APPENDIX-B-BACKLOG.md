@@ -200,6 +200,11 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
   - AC: a plan's segments run in order; the calls in a parallel segment run concurrently with results written by index into a pre-sliced slice — never appended from goroutines ([#69]) — and no segment starts more than `MaxParallel` calls at once.
   - AC: `Result.Err` is fed back to the model as an ordinary tool result and never ends the turn, while a tool's own `error` return is reported as a broken tool; both reach the transcript through one path and are bounded once on entry (E5-T3), so the two failure kinds cannot drift into two shapes.
   - AC: a cancelled turn starts no further calls and keeps every result it already has, so a batch stopped halfway is recorded as half done rather than discarded — which is what the recovery record (E4-T6) then describes.
+- **E4-T11 · The turn loop** — `size:M` · deps: `E4-T10`, `E4-T6` · labels: `type:feature`, `area:agent`, `risk:perf`, `milestone:m0`
+  - Found the same way as E4-T10, and by asking the index who calls what: `PlanBatch` has thirteen callers and every one of them is in a test file, while `Executor.Run` has no production caller at all. A turn therefore sends a prompt, receives a tool call, commits it, and ends — with the tool never run.
+  - AC: a turn is a loop — a round, then whatever it asked for, then another round — until the model returns no calls, a decision barrier cuts the batch, the turn is cancelled, or the step budget expires; and each of those four endings reports its own `TurnStatus` rather than arriving as "done".
+  - AC: the registry and the result boundary reach the controller through `Deps` and are supplied by `internal/assembly`, so a missing registry is a boot error rather than a turn that silently answers without using a tool.
+  - AC: a scripted provider that returns a tool call and then a final answer produces one tool result and two rounds, and a mutant that drops the second round turns that test red.
 
 ### E5 · Tool framework and the local toolbelt — M0–M1
 

@@ -947,7 +947,7 @@ Detail, dependencies and per-ticket acceptance criteria are in **Appendix B**.
 | **E1** | Project foundation, conventions and CI | M0 | 8 |
 | **E2** | Configuration, paths and identity | M0 | 7 |
 | **E3** | Provider layer: registry, wire kinds, streaming | M0 | 10 |
-| **E4** | Turn loop, events and the controller | M0 | 10 |
+| **E4** | Turn loop, events and the controller | M0 | 11 |
 | **E5** | Tool framework and the local toolbelt | M0–M1 | 14 |
 | **E6** | Permission engine | M1 | 8 |
 | **E7** | Sandbox and workspace trust | M1 | 7 |
