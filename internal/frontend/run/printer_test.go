@@ -124,3 +124,30 @@ func TestAToolRowDoesNotRunIntoTheAnswer(t *testing.T) {
 		t.Errorf("stdout is %q, want %q", stdout, want)
 	}
 }
+
+// TestPrintModeGivesTheAnswerAndNothingElse is E14-T3's criterion: deltas, tool rows and informational notices are
+// all suppressed, so the output can be piped somewhere that parses it.
+func TestPrintModeGivesTheAnswerAndNothingElse(t *testing.T) {
+	t.Parallel()
+	var stdout, stderr bytes.Buffer
+	p := &printer{stdout: &stdout, stderr: &stderr, quiet: true}
+	for _, e := range []event.Event{
+		event.TextDelta{TurnID: "t", ItemID: "i", Text: "thinking out loud"},
+		event.ReasoningDelta{TurnID: "t", ItemID: "i", Text: "hmm"},
+		event.ToolResult{CallID: "c1", Output: "module pretty-reasonix"},
+		event.Notice{Level: event.NoticeInfo, Code: "turn.recovered", Text: "turn-0001"},
+		event.MessageCommitted{TurnID: "t", ItemID: "i", Message: provider.Message{
+			Role: provider.RoleAssistant, Content: "the answer",
+		}},
+		event.TurnDone{TurnID: "t", Status: event.StatusDone},
+	} {
+		p.Emit(e)
+	}
+
+	if stdout.String() != "the answer\n" {
+		t.Errorf("stdout is %q, want only the answer", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("a clean print run wrote %q to stderr", stderr.String())
+	}
+}

@@ -65,6 +65,11 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if args[0] == "run" {
 		return run.Run(args[1:], os.Stdin, stdout, stderr)
 	}
+	// A print flag before the verb reroutes to run --print, because `prx -p "task"` is how every other CLI in
+	// this shape is written and refusing it would be a difference nobody can see the reason for.
+	if args[0] == "-p" || args[0] == "--print" {
+		return run.Run(args, os.Stdin, stdout, stderr)
+	}
 
 	switch args[0] {
 	case "version", "--version", "-v":

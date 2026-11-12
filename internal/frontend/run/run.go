@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"pretty-reasonix/internal/agent"
@@ -24,6 +25,10 @@ type Options struct {
 	Model  string
 	Effort string
 	Preset string
+	// Print asks for the final answer and nothing else: no deltas, no tool rows, no informational notices.
+	Print bool
+	// PromptFile reads the task from a file, for a prompt too long to quote.
+	PromptFile string
 }
 
 // Parse reads the arguments, accepting flags anywhere: before the verb, after it, or between the words of a
@@ -63,6 +68,11 @@ func Parse(args []string) (Options, error) {
 			options.Effort, err = next()
 		case "--preset":
 			options.Preset, err = next()
+		case "-p", "--print":
+			// A flag with no value: what follows is the task.
+			options.Print = true
+		case "--prompt-file", "--file":
+			options.PromptFile, err = next()
 		default:
 			return Options{}, fmt.Errorf("unknown flag %q", name)
 		}
@@ -83,6 +93,14 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 	task := strings.TrimSpace(options.Task)
+	if task == "" && options.PromptFile != "" {
+		fromFile, readErr := os.ReadFile(options.PromptFile)
+		if readErr != nil {
+			_, _ = fmt.Fprintf(stderr, config.BinaryName+" run: reading %s: %v\n", options.PromptFile, readErr)
+			return 1
+		}
+		task = strings.TrimSpace(string(fromFile))
+	}
 	if task == "" {
 		// stdin is the second way to say it, so a task can come from a pipe or a heredoc without quoting.
 		piped, readErr := io.ReadAll(stdin)
@@ -97,7 +115,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	sink := &printer{stdout: stdout, stderr: stderr}
+	sink := &printer{stdout: stdout, stderr: stderr, quiet: options.Print}
 	built, err := assembly.Build(assembly.Options{
 		Root:   options.Dir,
 		Model:  options.Model,
@@ -138,6 +156,8 @@ type printer struct {
 	failed bool
 	// streamed records that a delta is on screen without a line ending yet.
 	streamed bool
+	// quiet is --print: the answer and nothing else, so the output can be piped somewhere that parses it.
+	quiet bool
 }
 
 // Emit renders one event.
@@ -151,12 +171,21 @@ type printer struct {
 func (p *printer) Emit(e event.Event) {
 	switch typed := e.(type) {
 	case event.TextDelta:
+		if p.quiet {
+			return
+		}
 		_, _ = fmt.Fprint(p.stdout, typed.Text)
 		p.streamed = true
 	case event.ReasoningDelta:
+		if p.quiet {
+			return
+		}
 		_, _ = fmt.Fprint(p.stdout, typed.Text)
 		p.streamed = true
 	case event.ToolResult:
+		if p.quiet {
+			return
+		}
 		p.endRow()
 		outcome := "ok"
 		switch {
@@ -180,6 +209,9 @@ func (p *printer) Emit(e event.Event) {
 		if typed.Level == event.NoticeError {
 			_, _ = fmt.Fprintf(p.stderr, "[%s] %s\n", typed.Code, typed.Text)
 			p.failed = true
+			return
+		}
+		if p.quiet {
 			return
 		}
 		p.endRow()
