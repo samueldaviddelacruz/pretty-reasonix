@@ -136,24 +136,66 @@ type printer struct {
 	stdout io.Writer
 	stderr io.Writer
 	failed bool
+	// streamed records that a delta is on screen without a line ending yet.
+	streamed bool
 }
 
 // Emit renders one event.
+//
+// The rows are the TUI's without the screen control: deltas go out as they arrive, a tool says what it did on one
+// line, and the answer is not reprinted when it is committed — a frontend that streamed a token and then printed
+// the whole message again would say everything twice.
+//
+// stderr is reserved for what a person must act on. A notice at informational level is a row like any other, and
+// putting it on the error stream would make `prx run > answer.txt` produce an empty file and a wall of noise.
 func (p *printer) Emit(e event.Event) {
 	switch typed := e.(type) {
+	case event.TextDelta:
+		_, _ = fmt.Fprint(p.stdout, typed.Text)
+		p.streamed = true
+	case event.ReasoningDelta:
+		_, _ = fmt.Fprint(p.stdout, typed.Text)
+		p.streamed = true
+	case event.ToolResult:
+		p.endRow()
+		outcome := "ok"
+		switch {
+		case typed.Err != nil:
+			outcome = "failed"
+		case typed.Truncated:
+			outcome = "truncated"
+		}
+		_, _ = fmt.Fprintf(p.stdout, "[tool] %s\n", outcome)
 	case event.MessageCommitted:
 		if typed.Message.Role != provider.RoleAssistant {
 			return
 		}
+		if p.streamed {
+			// Already on screen, token by token.
+			p.endRow()
+			return
+		}
 		_, _ = fmt.Fprintln(p.stdout, typed.Message.Content)
 	case event.Notice:
-		_, _ = fmt.Fprintf(p.stderr, "[%s] %s\n", typed.Code, typed.Text)
 		if typed.Level == event.NoticeError {
+			_, _ = fmt.Fprintf(p.stderr, "[%s] %s\n", typed.Code, typed.Text)
 			p.failed = true
+			return
 		}
+		p.endRow()
+		_, _ = fmt.Fprintf(p.stdout, "[%s] %s\n", typed.Code, typed.Text)
 	case event.TurnDone:
+		p.endRow()
 		if typed.Status != event.StatusDone {
 			p.failed = true
 		}
+	}
+}
+
+// endRow finishes a streamed line if one is open, so no row runs into the next.
+func (p *printer) endRow() {
+	if p.streamed {
+		_, _ = fmt.Fprintln(p.stdout)
+		p.streamed = false
 	}
 }
