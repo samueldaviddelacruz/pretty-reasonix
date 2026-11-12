@@ -40,6 +40,10 @@ type ToolOutcome struct {
 	Call provider.ToolCall
 	// Result is the bounded output.
 	Result sessiontool.Bound
+	// News is what the tool reported about the world — a missing file, a non-zero exit. It is kept apart
+	// from Broken because the turn continues, and it is kept at all because dropping it left the model
+	// with an empty result and nothing to say.
+	News error
 	// Broken is the tool failing as software — a panic guard, a bug. A tool reporting bad news puts it in
 	// Result via Result.Err instead, and the turn continues. The two are kept apart so a broken tool never
 	// reads as a missing file.
@@ -158,6 +162,7 @@ func (e Executor) runOne(ctx context.Context, call provider.ToolCall) ToolOutcom
 	// A tool that succeeded keeps its result, even if the turn was cancelled in the microseconds since. The
 	// work is done; throwing it away would violate the one thing cancellation is supposed to guarantee, and
 	// the old check here did exactly that whenever the cancel landed between Execute returning and this line.
+	outcome.News = result.Err
 	if err != nil {
 		if ctx.Err() != nil {
 			// Cancelled while it ran, so the failure is the interruption rather than anything the tool did.
@@ -188,6 +193,10 @@ func (o Outcome) Messages(turnID string) []session.Message {
 		switch {
 		case result.Broken != nil:
 			content = "the tool could not run: " + result.Broken.Error()
+		case result.News != nil:
+			// The tool reached the world and the world said no. That is a result, not a failure, and the
+			// model needs the words to act on it.
+			content = result.News.Error()
 		case result.Result.Truncated:
 			content += "\n(output truncated)"
 		}
