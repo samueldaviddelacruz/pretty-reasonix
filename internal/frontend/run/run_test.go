@@ -102,3 +102,23 @@ func TestTheTaskCanComeFromStdin(t *testing.T) {
 		t.Fatalf("stdin was not read as a task: %s", stderr.String())
 	}
 }
+
+// TestPrintAndPromptFileAreParsed: the flag has no value, and the file is a third source for the task.
+func TestPrintAndPromptFileAreParsed(t *testing.T) {
+	t.Parallel()
+	withPrint, err := run.Parse([]string{"-p", "do the thing"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !withPrint.Print || withPrint.Task != "do the thing" {
+		t.Errorf("parsed %+v, want print mode with the task after the flag", withPrint)
+	}
+
+	fromFile, err := run.Parse([]string{"--prompt-file", "/tmp/prompt.md"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if fromFile.PromptFile != "/tmp/prompt.md" {
+		t.Errorf("parsed %+v, want the prompt file", fromFile)
+	}
+}
