@@ -8,8 +8,13 @@ import "fmt"
 // means the turn loop needs no knowledge that disks exist. The same shape as the sink boundary — one port, two
 // implementations — applied to storage.
 //
-// The session is created if it is not there, which makes a first run and a resumed one the same call.
+// It refuses an id already in use rather than appending into another session's log: a collision in a name is a bug at
+// the call site, and the alternative is silently mixing two conversations together. Reading an existing session is
+// LoadPersistent's job, and the two are separate so the mistake cannot be made by choosing the wrong function.
 func NewPersistent(layout Layout) (*Transcript, error) {
+	if fileExists(layout.Events) {
+		return nil, fmt.Errorf("%w: %s", ErrSessionExists, layout.Events)
+	}
 	if err := Create(layout); err != nil {
 		return nil, err
 	}

@@ -138,6 +138,14 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Deferred as well as explicit below: a turn that failed on the way in still opened a session, and leaving its
+	// descriptors open leaks them and loses whatever had been written.
+	defer func() {
+		if closeErr := built.Close(); closeErr != nil {
+			_, _ = fmt.Fprintf(stderr, config.BinaryName+" run: the session was not fully saved: %v\n", closeErr)
+		}
+	}()
+
 	control, err := built.Controller.Run(ctx, agent.TurnInput{Text: task})
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, config.BinaryName+" run: %v\n", err)

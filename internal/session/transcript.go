@@ -37,6 +37,9 @@ type Transcript struct {
 	// disk. Nothing else in this type changes, which is why persistence arrives without a second
 	// code path through the controller.
 	log *Log
+	// closed records that the log has been finished, so a later append is reported as the mistake it is rather than
+	// silently dropped.
+	closed bool
 	// writeErr is the first failure to persist, kept rather than returned.
 	//
 	// Append takes no error because the turn has already produced an answer worth showing: a session
@@ -50,9 +53,16 @@ type Transcript struct {
 // made by the caller that knows the reason.
 func (t *Transcript) Append(m Message) {
 	t.messages = append(t.messages, m)
-	if t.log != nil && t.writeErr == nil {
-		t.writeErr = t.log.Append(m)
+	if t.log == nil || t.writeErr != nil {
+		return
 	}
+	if t.closed {
+		// Writing to a finished session is a bug at the call site, and one worth hearing about: the message would
+		// otherwise be in the transcript the frontend shows and in nothing that survives the process.
+		t.writeErr = ErrSessionClosed
+		return
+	}
+	t.writeErr = t.log.Append(m)
 }
 
 // WriteError reports the first failure to persist, or nil when every message reached the log.
@@ -63,15 +73,19 @@ func (t *Transcript) WriteError() error { return t.writeErr }
 
 // Close finishes the session's log. It is safe on a transcript that has none.
 func (t *Transcript) Close() error {
-	if t.log == nil {
-		return nil
-	}
-	// A write that already failed is the more useful of the two errors: it names what went wrong with the conversation.
-	if t.writeErr != nil {
-		_ = t.log.Close()
+	if t.log == nil || t.closed {
+		// A second Close is a no-op rather than an error about a closed descriptor: the caller closes explicitly for
+		// the error and defers one as a safety net, and both are reasonable.
 		return t.writeErr
 	}
-	return t.log.Close()
+	t.closed = true
+	log := t.log
+	// A write that already failed is the more useful of the two errors: it names what went wrong with the conversation.
+	if t.writeErr != nil {
+		_ = log.Close()
+		return t.writeErr
+	}
+	return log.Close()
 }
 
 // All returns a copy of the record, so a caller can read the whole history

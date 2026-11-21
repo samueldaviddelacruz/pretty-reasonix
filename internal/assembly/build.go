@@ -121,9 +121,11 @@ func Build(options Options) (*Run, error) {
 		return nil, err
 	}
 	layout := session.NewLayout(paths.SessionsDir, id)
-	transcript, err := session.NewPersistent(layout)
-	if err != nil {
-		return nil, err
+	// Only the output directory exists this early: spilling needs somewhere to go, and a run that fails later must not
+	// leave an event log behind, because Newest orders by that file and --continue would resume a session that never
+	// said anything.
+	if mkErr := os.MkdirAll(layout.Outputs, session.ModeDir); mkErr != nil {
+		return nil, fmt.Errorf("creating the output directory: %w", mkErr)
 	}
 
 	confined, err := os.OpenRoot(workspace)
@@ -133,6 +135,12 @@ func Build(options Options) (*Run, error) {
 	registry := tool.NewRegistry()
 	if toolErr := RegisterTools(registry, confined); toolErr != nil {
 		return nil, toolErr
+	}
+
+	// Created here, last: everything that can fail has failed by now.
+	transcript, err := session.NewPersistent(layout)
+	if err != nil {
+		return nil, err
 	}
 
 	controller, err := agent.NewController(agent.Deps{
