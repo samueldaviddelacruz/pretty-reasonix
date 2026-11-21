@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -121,6 +122,8 @@ type model struct {
 	// accumulated timer drifts and, worse, cannot be advanced by a test.
 	started time.Time
 	frames  int
+	// reducer is the transcript. The model owns it and the view reads it, which is what keeps drawing stateless.
+	reducer *Reducer
 	events  int
 	lost    int64
 }
@@ -133,6 +136,7 @@ func newModel(options Options) *model {
 		width:   options.Width,
 		height:  options.Height,
 		started: options.Now(),
+		reducer: NewReducer(),
 	}
 }
 
@@ -156,7 +160,12 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case frameMsg:
 		m.frames++
 	case batchMsg:
-		// One render for the whole burst, which is the point of the batch existing.
+		// One render for the whole burst, which is the point of the batch existing. The events are folded here rather
+		// than in the view: the model owns the transcript, and a view that mutated it would make every redraw a
+		// potential state change.
+		for _, e := range typed.Events {
+			m.reducer.Apply(e)
+		}
 		m.events += len(typed.Events)
 		// Stored, not added: the pump reports a total, and accumulating it would square the loss.
 		m.lost = typed.Lost
@@ -174,8 +183,17 @@ func (m *model) View() tea.View {
 	elapsed := m.now().Sub(m.started).Round(time.Second)
 	// Dropped is shown next to the count rather than instead of it: a renderer that said only "3 lost" would leave a
 	// reader unable to tell whether anything arrived at all.
-	view := tea.NewView(fmt.Sprintf("pretty-reasonix · %s · %dx%d · %s · %d frame(s) · %d event(s) · %d lost\n",
-		mode, m.width, m.height, elapsed, m.frames, m.events, m.lost))
+	// The transcript, then a status line. Drawing is plain text until E13 gives termrender the job; what matters here is
+	// that the rows come from the reducer and nothing else.
+	var body strings.Builder
+	for _, row := range m.reducer.Rows() {
+		fmt.Fprintf(&body, "%s\n", row.Render(m.width))
+	}
+	// The counts stay beside the transcript rather than replacing it: a screen that showed only "3 lost" would leave a
+	// reader unable to tell whether anything arrived at all.
+	fmt.Fprintf(&body, "pretty-reasonix · %s · %dx%d · %s · %d frame(s) · %d event(s) · %d lost\n",
+		mode, m.width, m.height, elapsed, m.frames, m.events, m.lost)
+	view := tea.NewView(body.String())
 	// Alt screen is per-View, so this is where the modes actually differ: fullscreen takes the terminal over, inline
 	// leaves the person's scrollback where it was.
 	view.AltScreen = !m.inline
