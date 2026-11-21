@@ -21,7 +21,10 @@ import (
 
 	"github.com/charmbracelet/x/term"
 
+	"pretty-reasonix/internal/agent"
+	"pretty-reasonix/internal/assembly"
 	"pretty-reasonix/internal/config"
+	"pretty-reasonix/internal/contract/event"
 	"pretty-reasonix/internal/frontend/run"
 	"pretty-reasonix/internal/frontend/tui"
 	"pretty-reasonix/internal/version"
@@ -123,10 +126,34 @@ func startSession(stdout, stderr io.Writer) int {
 	// Ctrl-C is handed to the program rather than intercepted: Bubble Tea installs its own handler, turns the signal
 	// into an interrupt, quits cleanly and restores the terminal. A second handler here would race it, and the loser
 	// would decide the exit code.
+	// One builder, the same one the headless runner uses: a tool registered for one is available to the other, which is
+	// the whole reason assembly exists rather than the two frontends each wiring their own.
+	sink := event.NewChannelSink()
+	now := time.Now() //nolint:forbidigo // the CLI is the boundary that reads the wall clock
+	built, buildErr := assembly.Build(assembly.Options{Sink: sink, Now: now})
+	if buildErr != nil {
+		_, _ = fmt.Fprintf(stderr, "%s: %v\n", config.BinaryName, buildErr)
+		return exitFailure
+	}
+	// Closed on every path: the session holds the conversation, and losing it silently is the failure this program is
+	// most careful about everywhere else.
+	defer func() {
+		if closeErr := built.Close(); closeErr != nil {
+			_, _ = fmt.Fprintf(stderr, "%s: the session was not fully saved: %v\n", config.BinaryName, closeErr)
+		}
+	}()
+
 	err := tui.Run(context.Background(), tui.Options{
-		In:  os.Stdin,
-		Out: stdout,
-		// The process boundary is where the wall clock is read; everything below takes one.
+		In:   os.Stdin,
+		Out:  stdout,
+		Sink: sink,
+		// A submitted message starts a turn. The turn's events reach the program through the sink the builder was given,
+		// so the frontend never sees the controller and the controller never sees a terminal.
+		Send: func(text string) {
+			if _, runErr := built.Controller.Run(context.Background(), agent.TurnInput{Text: text}); runErr != nil {
+				_, _ = fmt.Fprintf(stderr, "%s: %v\n", config.BinaryName, runErr)
+			}
+		},
 		Now: time.Now, //nolint:forbidigo // the CLI is the boundary that reads the wall clock
 	})
 	if err != nil {
