@@ -39,9 +39,12 @@ type Options struct {
 	// only way to see it move is to sleep — and rules [#86]/[#87] exist so that a frontend never forces a test to.
 	Now func() time.Time
 
-	// Send is what a submitted message goes to. Nil is a program that records what was typed and does nothing with
-	// it, which is what makes the input path testable without a controller behind it.
-	Send func(string)
+	// Send is what a submitted message goes to. Nil is a program that records what was typed and does nothing with it,
+	// which is what makes the input path testable without a controller behind it.
+	//
+	// It returns an error because a send can be refused — a turn is already running — and the composer has to give the
+	// words back rather than clear them. Printing to stderr instead would scribble over the frame the program owns.
+	Send func(string) error
 
 	// Sink is the engine's event channel. When it is set, the program drains it and folds what arrives into one update
 	// per burst; when it is nil the program draws its skeleton and nothing else.
@@ -134,11 +137,14 @@ type model struct {
 	composer *Composer
 	stack    *Stack
 	// send is where a submitted message goes, or nil.
-	send func(string)
+	send func(string) error
 	// lastSent is what was last submitted, so a test can assert that Enter did something without a controller.
 	lastSent string
-	events   int
-	lost     int64
+	// sendErr is why the last send was refused, if it was. Shown in the status line, because the program owns the
+	// terminal and there is nowhere else for it to go.
+	sendErr string
+	events  int
+	lost    int64
 }
 
 // newModel builds the initial state.
@@ -257,6 +263,9 @@ func (m *model) View() tea.View {
 	}
 	status := fmt.Sprintf("pretty-reasonix · %s · %dx%d · %s · %d frame(s) · %d event(s) · %d lost · %s · cursor:%s",
 		mode, m.width, m.height, elapsed, m.frames, m.events, m.lost, followingLabel(m.viewport), m.composer.Shape())
+	if m.sendErr != "" {
+		status += " · " + m.sendErr
+	}
 	body.WriteString(status)
 	body.WriteString("\n")
 	view := tea.NewView(body.String())
@@ -286,9 +295,17 @@ func (m *model) submit() {
 	}
 	m.lastSent = text
 	m.composer.Clear()
-	if m.send != nil {
-		m.send(text)
+	if m.send == nil {
+		return
 	}
+	if err := m.send(text); err != nil {
+		// Put it back. A refused send happens when a turn is already running, and the second message is one the person
+		// still wants — losing it to a race would be worse than the race.
+		m.composer.Insert(text)
+		m.sendErr = err.Error()
+		return
+	}
+	m.sendErr = ""
 }
 
 // syncViewport gives the transcript whatever the bottom region does not need.
