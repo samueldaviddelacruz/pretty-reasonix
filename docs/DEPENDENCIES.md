@@ -57,7 +57,7 @@ row is added by the ticket that first needs it.
 | `mattn/go-runewidth` | East Asian width for per-rune terminals, as a fallback beside uniseg. | uniseg alone does not cover the legacy terminal case. |
 | `BurntSushi/toml` | Config parsing. | Hand-rolled TOML is a source of subtle bugs; the reference project reached the same conclusion and takes exactly one config dependency. |
 | `mvdan.cc/sh/v3` | Parsing a shell command so permission rules match its *structure* rather than its text (TDD §6.7). | Regular expressions over command strings, which is precisely the approach the rule engine exists to avoid. |
-| `golang.org/x/sync` | `errgroup` for the parallel tool batch. Required by baseline rule [#73], which names hand-rolled goroutine fan-out with error handling and cancellation as the thing to avoid. | The hand-rolled version [#73] warns about. |
+| `golang.org/x/sync` | Arrived transitively with Bubble Tea. `errgroup` was *considered* for the parallel tool batch and **not used**, because a tool failure is a result rather than a Go error (E4-T10, `GO-STANDARDS.md` §7). The entry stays for `singleflight` if a later ticket earns it. Required by baseline rule [#73], which names hand-rolled goroutine fan-out with error handling and cancellation as the thing to avoid. | The hand-rolled version [#73] warns about. |
 | `go.uber.org/goleak` | Goroutine-leak assertions in `TestMain`, which turn baseline rule [#62] ("every goroutine needs a known exit") from a review rule into a test failure. | Nothing else catches a leak before it becomes a hang. |
 
 ## 3. Deliberately refused
@@ -112,3 +112,11 @@ For any pull request that adds, bumps or removes a dependency:
 - [ ] It does not take a decision we own (D2).
 - [ ] If a module was **removed**, its §2 row is removed in the same PR.
 - [ ] If the version **bumped**, the reason is in the commit message.
+
+### What the first Charm dependency actually pulled in
+
+`charm.land/bubbletea/v2` v2.1.2 arrived with `E10-T1`, and brought ten modules the build needs: `charmbracelet/ultraviolet`, `charmbracelet/x/ansi`, `charmbracelet/x/term`, `charmbracelet/colorprofile`, `aymanbagabas/go-udiff`, `rivo/uniseg`, `mattn/go-runewidth`, `xo/terminfo`, and `golang.org/x/{sys,sync,exp}`.
+
+Every one is either already on the approved list above or is a Charm-internal dependency of one that is. **`charmbracelet/ultraviolet` is the one to watch**: a runtime dependency of the renderer, pinned to a pseudo-version (`v0.0.0-…`) rather than a tag, so `go.sum` records a commit rather than a release. That is Bubble Tea's choice rather than ours, and it is why §4's `go mod tidy` check matters more now than it did before.
+
+`make pure-go` still passes with the whole stack in place — `CGO_ENABLED=0 go build ./...` succeeds — so the single static binary promise (§1) holds.
