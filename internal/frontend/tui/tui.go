@@ -124,19 +124,22 @@ type model struct {
 	frames  int
 	// reducer is the transcript. The model owns it and the view reads it, which is what keeps drawing stateless.
 	reducer *Reducer
-	events  int
-	lost    int64
+	// viewport is how much of it fits, and where the reader is looking. Its height is the window minus the status row.
+	viewport *Viewport
+	events   int
+	lost     int64
 }
 
 // newModel builds the initial state.
 func newModel(options Options) *model {
 	return &model{
-		now:     options.Now,
-		inline:  options.Inline,
-		width:   options.Width,
-		height:  options.Height,
-		started: options.Now(),
-		reducer: NewReducer(),
+		now:      options.Now,
+		inline:   options.Inline,
+		width:    options.Width,
+		height:   options.Height,
+		started:  options.Now(),
+		reducer:  NewReducer(),
+		viewport: NewViewport(max(options.Height-1, 0)),
 	}
 }
 
@@ -157,6 +160,7 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.WindowSizeMsg:
 		m.width, m.height = typed.Width, typed.Height
+		m.viewport.SetHeight(max(typed.Height-1, 0))
 	case frameMsg:
 		m.frames++
 	case batchMsg:
@@ -185,17 +189,35 @@ func (m *model) View() tea.View {
 	// reader unable to tell whether anything arrived at all.
 	// The transcript, then a status line. Drawing is plain text until E13 gives termrender the job; what matters here is
 	// that the rows come from the reducer and nothing else.
-	var body strings.Builder
-	for _, row := range m.reducer.Rows() {
-		fmt.Fprintf(&body, "%s\n", row.Render(m.width))
+	// The transcript goes through the viewport so the reader can scroll it; the status line is the pinned bottom row. The
+	// counts stay beside the transcript rather than replacing it: a screen showing only "3 lost" would leave a reader
+	// unable to tell whether anything arrived at all.
+	rows := m.reducer.Rows()
+	lines := make([]string, 0, len(rows))
+	for _, row := range rows {
+		lines = append(lines, strings.Split(row.Render(m.width), "\n")...)
 	}
-	// The counts stay beside the transcript rather than replacing it: a screen that showed only "3 lost" would leave a
-	// reader unable to tell whether anything arrived at all.
-	fmt.Fprintf(&body, "pretty-reasonix · %s · %dx%d · %s · %d frame(s) · %d event(s) · %d lost\n",
-		mode, m.width, m.height, elapsed, m.frames, m.events, m.lost)
+	m.viewport.SetLines(lines)
+
+	var body strings.Builder
+	status := fmt.Sprintf("pretty-reasonix · %s · %dx%d · %s · %d frame(s) · %d event(s) · %d lost · %s",
+		mode, m.width, m.height, elapsed, m.frames, m.events, m.lost, followingLabel(m.viewport))
+	for _, line := range Compose(m.viewport.Visible(), status, max(m.height, 1)) {
+		body.WriteString(line)
+		body.WriteString("\n")
+	}
 	view := tea.NewView(body.String())
 	// Alt screen is per-View, so this is where the modes actually differ: fullscreen takes the terminal over, inline
 	// leaves the person's scrollback where it was.
 	view.AltScreen = !m.inline
 	return view
+}
+
+// followingLabel says whether new output will move the screen, which is the one piece of viewport state a reader needs to
+// see: a paused transcript with no indication of it looks like a stalled one.
+func followingLabel(v *Viewport) string {
+	if v.Following() {
+		return "following"
+	}
+	return "paused"
 }
