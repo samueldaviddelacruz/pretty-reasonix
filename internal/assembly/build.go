@@ -61,7 +61,10 @@ type Run struct {
 	// Recovered reports what a resume had to set aside, so the frontend can say so.
 	Recovered session.Recovered
 	// Resumed is true when the run continued an existing session rather than starting one.
-	Resumed  bool
+	Resumed bool
+	// root is the workspace handle the tools are confined to. Held so Close can release it: a directory descriptor per
+	// session is invisible until a long one runs a machine out of file handles.
+	root     *os.Root
 	Warnings []config.Warning
 	Ignored  config.IgnoredProjectSettings
 }
@@ -71,7 +74,16 @@ type Run struct {
 // The answer the turn produced has already been shown, so this reports history that was lost rather than turning a
 // finished run into a failed one — but it does report it, because a transcript that quietly stopped writing looks
 // exactly like one that worked.
-func (r *Run) Close() error { return r.Transcript.Close() }
+func (r *Run) Close() error {
+	// Both, and joined rather than short-circuited: a session that failed to save and a directory handle that was not
+	// released are different leaks, and reporting only the first hides the second.
+	var rootErr error
+	if r.root != nil {
+		rootErr = r.root.Close()
+		r.root = nil
+	}
+	return errors.Join(r.Transcript.Close(), rootErr)
+}
 
 // Build wires a run: configuration, then registries, then the provider and tools, then the controller.
 //
@@ -148,12 +160,14 @@ func Build(options Options) (*Run, error) {
 	}
 	registry := tool.NewRegistry()
 	if toolErr := RegisterTools(registry, confined); toolErr != nil {
+		_ = confined.Close()
 		return nil, toolErr
 	}
 
 	// Opened here, last: everything that can fail has failed by now.
 	transcript, openErr := openTranscript(layout, resumed)
 	if openErr != nil {
+		_ = confined.Close()
 		return nil, openErr
 	}
 
@@ -179,6 +193,9 @@ func Build(options Options) (*Run, error) {
 		Boundary: tool.Boundary{Dir: layout.Outputs},
 	})
 	if err != nil {
+		// The controller is the last thing built, so a failure here has both handles open.
+		_ = transcript.Close()
+		_ = confined.Close()
 		return nil, err
 	}
 
@@ -191,6 +208,7 @@ func Build(options Options) (*Run, error) {
 		Layout:     layout,
 		Recovered:  recovered,
 		Resumed:    resumed,
+		root:       confined,
 		Warnings:   loaded.Warnings,
 		Ignored:    loaded.Ignored,
 	}, nil
