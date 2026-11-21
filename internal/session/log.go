@@ -26,19 +26,30 @@ var (
 	ErrEmptyDigest = errors.New("a message with no content has no digest")
 )
 
-// Record is one line of the event log.
+// SchemaVersion is the record format this writer produces.
+//
+// A reader that meets a higher number must refuse rather than guess: a newer writer owns the file, and interpreting
+// an unknown shape is how a log becomes corruption. Replay enforces that in E9-T3; the number is written from here
+// so that it can.
+const SchemaVersion = 1
+
+// Record is one line of the event log, in the shape TDD §6.10 documents.
 //
 // The revision pair is what makes a log replayable in the face of a crash: `Revision` numbers this record,
 // `BaseRevision` says which revision a replacement supersedes, and `MessageIndex` says where in the transcript it
 // lands. `ContentDigest` is the integrity check a torn final line needs.
+//
+// Both kinds carry `Messages` rather than an append carrying one and a replace carrying a list: one field means one
+// decoder path, and a reader cannot get the shape right for one kind and wrong for the other.
 type Record struct {
+	SchemaVersion int       `json:"schema_version"`
+	Type          string    `json:"type"`
 	Revision      int       `json:"revision"`
 	BaseRevision  int       `json:"base_revision"`
-	Kind          string    `json:"kind"`
 	MessageIndex  int       `json:"message_index"`
+	Messages      []Message `json:"messages"`
 	ContentDigest string    `json:"content_digest"`
-	Message       *Message  `json:"message,omitempty"`
-	Replaced      []Message `json:"replaced,omitempty"`
+	Reason        string    `json:"reason,omitempty"`
 }
 
 // Log writes a transcript twice: an event log that can be replayed, and a canonical `.jsonl` that anything can read.
@@ -83,12 +94,13 @@ func (l *Log) Append(message Message) error {
 
 	l.revision++
 	record := Record{
+		SchemaVersion: SchemaVersion,
+		Type:          RecordAppend,
 		Revision:      l.revision,
 		BaseRevision:  l.revision - 1,
-		Kind:          RecordAppend,
 		MessageIndex:  l.length,
+		Messages:      []Message{message},
 		ContentDigest: digest,
-		Message:       &message,
 	}
 	if err := l.write(record); err != nil {
 		l.revision-- // the caller may retry, and a revision that skipped would break the next chain check
@@ -106,11 +118,13 @@ func (l *Log) Append(message Message) error {
 func (l *Log) Replace(messages []Message) error {
 	l.revision++
 	record := Record{
-		Revision:     l.revision,
-		BaseRevision: l.revision - 1,
-		Kind:         RecordReplace,
-		MessageIndex: 0,
-		Replaced:     messages,
+		SchemaVersion: SchemaVersion,
+		Type:          RecordReplace,
+		Revision:      l.revision,
+		BaseRevision:  l.revision - 1,
+		MessageIndex:  0,
+		Messages:      messages,
+		Reason:        "compaction",
 	}
 	if err := l.write(record); err != nil {
 		l.revision--
@@ -140,8 +154,8 @@ func (l *Log) write(record Record) error {
 	}
 
 	// The canonical file cannot show a replacement, so it only ever records appends. It is a view, not the record.
-	if record.Kind == RecordAppend && record.Message != nil {
-		canonical, marshalErr := json.Marshal(record.Message)
+	if record.Type == RecordAppend && len(record.Messages) == 1 {
+		canonical, marshalErr := json.Marshal(record.Messages[0])
 		if marshalErr != nil {
 			return fmt.Errorf("encoding the canonical message: %w", marshalErr)
 		}
@@ -220,20 +234,21 @@ func replay(body []byte) ([]Message, error) {
 		if err := json.Unmarshal(line, &record); err != nil {
 			return nil, fmt.Errorf("an event line is not a record: %w", err)
 		}
-		switch record.Kind {
+		switch record.Type {
 		case RecordReplace:
-			messages = append([]Message(nil), record.Replaced...)
+			messages = append([]Message(nil), record.Messages...)
 		case RecordAppend:
-			if record.Message == nil {
-				return nil, fmt.Errorf("an append record at revision %d has no message", record.Revision)
+			if len(record.Messages) != 1 {
+				return nil, fmt.Errorf("an append record at revision %d carries %d messages",
+					record.Revision, len(record.Messages))
 			}
 			if record.MessageIndex != len(messages) {
 				return nil, fmt.Errorf("%w: index %d after %d messages",
 					ErrChainBroken, record.MessageIndex, len(messages))
 			}
-			messages = append(messages, *record.Message)
+			messages = append(messages, record.Messages[0])
 		default:
-			return nil, fmt.Errorf("unknown record kind %q at revision %d", record.Kind, record.Revision)
+			return nil, fmt.Errorf("unknown record type %q at revision %d", record.Type, record.Revision)
 		}
 	}
 	return messages, nil
