@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"pretty-reasonix/internal/agent"
 	"pretty-reasonix/internal/config"
@@ -34,6 +35,9 @@ type Options struct {
 	Preset string
 	// Sink receives the turn's events. Required: a run with nowhere to report is a run with no frontend.
 	Sink event.Sink
+	// Now is the clock a new session is named from. Required rather than defaulted: a function that reads the clock
+	// cannot be tested, and the caller is the only place that knows what time it is.
+	Now time.Time
 }
 
 // Run is everything one run needs, wired.
@@ -47,9 +51,17 @@ type Run struct {
 	Registry   *tool.Registry
 	Paths      config.Paths
 	Model      model.Model
+	Layout     session.Layout
 	Warnings   []config.Warning
 	Ignored    config.IgnoredProjectSettings
 }
+
+// Close finishes the session, reporting a failure to persist rather than swallowing it.
+//
+// The answer the turn produced has already been shown, so this reports history that was lost rather than turning a
+// finished run into a failed one — but it does report it, because a transcript that quietly stopped writing looks
+// exactly like one that worked.
+func (r *Run) Close() error { return r.Transcript.Close() }
 
 // Build wires a run: configuration, then registries, then the provider and tools, then the controller.
 //
@@ -99,6 +111,21 @@ func Build(options Options) (*Run, error) {
 		return nil, err
 	}
 
+	// One session per run, created here so that persistence is a wiring decision rather than something the loop knows
+	// about. Resuming is E9-T5's flags; this ticket only has to make a run outlive itself.
+	if options.Now.IsZero() {
+		return nil, errors.New("a run needs the current time, so a session can be named after it")
+	}
+	id, err := session.NewID(options.Now)
+	if err != nil {
+		return nil, err
+	}
+	layout := session.NewLayout(paths.SessionsDir, id)
+	transcript, err := session.NewPersistent(layout)
+	if err != nil {
+		return nil, err
+	}
+
 	confined, err := os.OpenRoot(workspace)
 	if err != nil {
 		return nil, fmt.Errorf("confining tools to %s: %w", workspace, err)
@@ -108,7 +135,6 @@ func Build(options Options) (*Run, error) {
 		return nil, toolErr
 	}
 
-	transcript := &session.Transcript{}
 	controller, err := agent.NewController(agent.Deps{
 		Provider:   built,
 		Transcript: transcript,
@@ -126,7 +152,9 @@ func Build(options Options) (*Run, error) {
 		// Handed over here rather than defaulted in the controller: a turn without a registry can only
 		// talk, and that should be a decision, not an accident.
 		Registry: registry,
-		Boundary: tool.Boundary{Dir: filepath.Join(paths.SessionsDir, "spill")},
+		// The session's own outputs directory, now that there is one: the placeholder existed because a run had nowhere
+		// to spill to, and spilling beside every other session is not where spilled output belongs.
+		Boundary: tool.Boundary{Dir: layout.Outputs},
 	})
 	if err != nil {
 		return nil, err
@@ -138,6 +166,7 @@ func Build(options Options) (*Run, error) {
 		Registry:   registry,
 		Paths:      paths,
 		Model:      resolved,
+		Layout:     layout,
 		Warnings:   loaded.Warnings,
 		Ignored:    loaded.Ignored,
 	}, nil

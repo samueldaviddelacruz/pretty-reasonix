@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"pretty-reasonix/internal/agent"
 	"pretty-reasonix/internal/assembly"
@@ -122,6 +123,9 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		Effort: options.Effort,
 		Preset: options.Preset,
 		Sink:   sink,
+		// The process boundary is where the real clock is read; everything below takes one. Rule [#87] asks for
+		// injection, and this is the injection point rather than an exception to it.
+		Now: time.Now(), //nolint:forbidigo // the CLI is the boundary that reads the wall clock
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, config.BinaryName+" run: %v\n", err)
@@ -140,6 +144,15 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	<-control.Done()
+
+	// Closed after the turn, not before: the session is the record of the run, and a failure to finish writing it is
+	// reported on stderr so that lost history is never silent. The answer has already been shown, so this does not
+	// turn a finished run into a failed one — but it does set the exit code, because a script's next step after a lost
+	// conversation is different from its next step after a clean one.
+	if closeErr := built.Close(); closeErr != nil {
+		_, _ = fmt.Fprintf(stderr, config.BinaryName+" run: the session was not fully saved: %v\n", closeErr)
+		sink.failed = true
+	}
 	if sink.failed {
 		return 1
 	}

@@ -330,6 +330,11 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
   - AC: the index holds turn count, title, preview, model, timestamps and digests; it is treated as a cache and repaired — never trusted over the log — when its digest disagrees.
 - **E9-T5 · Lifecycle: new, resume, continue, copy** — `size:M` · deps: `E9-T4` · labels: `type:feature`, `area:state`, `milestone:m0`
   - AC: `--continue` resumes the newest session or starts a fresh one with a notice; `--resume QUERY` accepts an id, a path, or a unique title/preview substring and reports missing and ambiguous matches distinguishably; `--copy` leaves the original untouched.
+- **E9-T10 · Persist the turn** — `size:M` · deps: `E9-T2`, `E9-T5` · labels: `type:feature`, `area:state`, `risk:data-loss`, `milestone:m0`
+  - Found the same way as E4-T10 and E4-T11: every part of the session store exists and is tested — `CreateLog`, `Layout`, `Index`, `Recover`, `Resolve`, `Copy` — and nothing calls any of them from a turn, so `prx run` forgets everything when the process exits.
+  - AC: a run creates a session through `assembly` and every message the controller commits reaches the event log, so a second process can read the conversation back.
+  - AC: a transcript that cannot be written is reported and the turn continues with its in-memory copy rather than failing the answer already produced — persistence is a safety net, not a gate.
+  - AC: the session's `outputs/` is where spilled tool output goes, replacing the `sessions/spill` placeholder that `assembly` currently passes.
 - **E9-T6 · Picker data and preview metadata** — `size:M` · deps: `E9-T4` · labels: `type:feature`, `area:state`, `milestone:m2`
   - AC: listing reads only the index and **never decodes a transcript** (asserted by a test); each row shows title, model, turn count, age and a first-prompt excerpt; an unindexed session shows "indexing" and is repaired in the background (U10).
 - **E9-T7 · Single-writer lease** — `size:M` · deps: `E9-T2` · labels: `type:feature`, `area:state`, `risk:data-loss`, `milestone:m2`
