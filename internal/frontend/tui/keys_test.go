@@ -12,7 +12,7 @@ import (
 )
 
 // ready makes a model sized for a terminal, which is the state key handling assumes.
-func ready(t *testing.T, send func(string)) *model {
+func ready(t *testing.T, send func(string) error) *model {
 	t.Helper()
 	m := newModel(Options{Now: time.Now, Send: send, Height: 24, Width: 80})
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -41,7 +41,7 @@ func TestTypingReachesTheComposer(t *testing.T) {
 func TestEnterSubmitsAndClears(t *testing.T) {
 	t.Parallel()
 	var sent []string
-	m := ready(t, func(text string) { sent = append(sent, text) })
+	m := ready(t, func(text string) error { sent = append(sent, text); return nil })
 	typeInto(m, "what does go.mod declare")
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
@@ -58,7 +58,7 @@ func TestEnterSubmitsAndClears(t *testing.T) {
 func TestAModifiedEnterDoesNotSubmit(t *testing.T) {
 	t.Parallel()
 	var sent []string
-	m := ready(t, func(text string) { sent = append(sent, text) })
+	m := ready(t, func(text string) error { sent = append(sent, text); return nil })
 	typeInto(m, "first line")
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift})
 	typeInto(m, "second line")
@@ -146,7 +146,7 @@ func TestTheComposerResizesTheTranscript(t *testing.T) {
 func TestSendingNothingIsNotASend(t *testing.T) {
 	t.Parallel()
 	var sent []string
-	m := ready(t, func(text string) { sent = append(sent, text) })
+	m := ready(t, func(text string) error { sent = append(sent, text); return nil })
 
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m.Update(tea.KeyPressMsg{Code: teaspace, Text: " "})

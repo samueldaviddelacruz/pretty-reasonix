@@ -117,6 +117,10 @@ func writeLines(w io.Writer, lines []string) error {
 // promise instead. The condition is deliberate: a program that draws escape sequences into a pipe has produced a file
 // nobody can read, so anything that is not a character device gets the usage text it always got.
 func startSession(stdout, stderr io.Writer) int {
+	// Named because the deferred close can fail after the program has exited cleanly, and a session that did not save must
+	// not report success.
+	exitCode := exitOK
+
 	// Both streams, because a program needs both: terminal output with piped input is a UI that can never receive a
 	// key, and it would fail as a hang rather than as a message.
 	if !bothAreTerminals(stdout, os.Stdin) {
@@ -135,11 +139,27 @@ func startSession(stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "%s: %v\n", config.BinaryName, buildErr)
 		return exitFailure
 	}
+	// The turn's context outlives one keypress: it is cancelled when the program exits, so leaving mid-turn stops the
+	// request and records the interruption rather than abandoning a goroutine.
+	turnCtx, stopTurns := context.WithCancel(context.Background())
+	var running agent.TurnControl
+
+	// Registered before the close below, so it runs *after* it: defers unwind last-in-first-out, and the session must not
+	// be closed while a turn is still appending to its transcript. Cancelling alone is not enough — the append happens on
+	// the turn's goroutine, so this waits for Done before the close is reached.
+	defer func() {
+		stopTurns()
+		if running != nil {
+			<-running.Done()
+		}
+	}()
+
 	// Closed on every path: the session holds the conversation, and losing it silently is the failure this program is
 	// most careful about everywhere else.
 	defer func() {
 		if closeErr := built.Close(); closeErr != nil {
 			_, _ = fmt.Fprintf(stderr, "%s: the session was not fully saved: %v\n", config.BinaryName, closeErr)
+			exitCode = exitFailure
 		}
 	}()
 
@@ -149,10 +169,16 @@ func startSession(stdout, stderr io.Writer) int {
 		Sink: sink,
 		// A submitted message starts a turn. The turn's events reach the program through the sink the builder was given,
 		// so the frontend never sees the controller and the controller never sees a terminal.
-		Send: func(text string) {
-			if _, runErr := built.Controller.Run(context.Background(), agent.TurnInput{Text: text}); runErr != nil {
-				_, _ = fmt.Fprintf(stderr, "%s: %v\n", config.BinaryName, runErr)
+		// The error is returned rather than printed: the program owns the terminal in raw alt-screen mode, so a line
+		// written to stderr now lands on the rendered frame and is painted over on the next update. The composer hands the
+		// text back instead, and the status line says why.
+		Send: func(text string) error {
+			control, runErr := built.Controller.Run(turnCtx, agent.TurnInput{Text: text})
+			if runErr != nil {
+				return runErr
 			}
+			running = control
+			return nil
 		},
 		Now: time.Now, //nolint:forbidigo // the CLI is the boundary that reads the wall clock
 	})
@@ -160,7 +186,7 @@ func startSession(stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "%s: %v\n", config.BinaryName, err)
 		return exitFailure
 	}
-	return exitOK
+	return exitCode
 }
 
 // bothAreTerminals reports whether output and input are each a terminal.
