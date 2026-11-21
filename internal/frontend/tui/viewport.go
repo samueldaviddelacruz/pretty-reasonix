@@ -46,6 +46,9 @@ func (v *Viewport) Lines() int { return len(v.lines) }
 
 // Top is the index of the first visible line, which is the reader's place.
 func (v *Viewport) Top() int {
+	if v.height == 0 || len(v.lines) == 0 {
+		return 0
+	}
 	if v.following {
 		return max(len(v.lines)-v.height, 0)
 	}
@@ -82,10 +85,12 @@ func (v *Viewport) ScrollBy(delta int) {
 }
 
 // PageUp and PageDown move by a window less one line, so a reader keeps a line of context across the jump.
-func (v *Viewport) PageUp() { v.ScrollBy(-(v.height - 1)) }
+func (v *Viewport) PageUp() { v.ScrollBy(-max(v.height-1, 1)) }
 
 // PageDown moves a window less one line towards newer content.
-func (v *Viewport) PageDown() { v.ScrollBy(v.height - 1) }
+//
+// Both pages move at least one line, because a zero-height window would otherwise turn PageUp into a scroll *down*.
+func (v *Viewport) PageDown() { v.ScrollBy(max(v.height-1, 1)) }
 
 // Home goes to the oldest content.
 func (v *Viewport) Home() { v.following, v.top = false, 0 }
@@ -103,8 +108,12 @@ func (v *Viewport) clamp() {
 		return
 	}
 	v.top = max(v.top, 0)
-	if furthest := max(len(v.lines)-v.height, 0); v.top > furthest {
-		v.top = furthest
+	furthest := max(len(v.lines)-v.height, 0)
+	if v.top >= furthest {
+		// Landed on the tail — by shrinking content, growing the window, or scrolling there. Following is a separate fact
+		// and has to agree: a viewport whose anchor is the bottom but which is not following would refuse to track the
+		// next line, which is exactly what the follow rule forbids.
+		v.top, v.following = furthest, true
 	}
 }
 
@@ -116,21 +125,27 @@ func Compose(visible []string, bottom string, height int) []string {
 	if height <= 0 {
 		return nil
 	}
-	out := make([]string, 0, height)
 	room := height
 	if bottom != "" {
 		room = height - 1
 	}
-	if room > 0 {
-		start := max(len(visible)-room, 0)
-		out = append(out, visible[start:]...)
-	}
-	// The bottom always occupies the last row, even when the history is shorter than the window, so the status line does
-	// not drift upwards as the answer grows.
-	for len(out) < height-1 {
+
+	// `visible` is already the window the viewport chose, so re-slicing it here would discard the line the reader is
+	// anchored to — and would do it every frame, since the window is normally full. Short history is padded *above*
+	// itself so the oldest line sits at the top of the frame rather than drifting down it.
+	out := make([]string, 0, height)
+	for len(out) < room-len(visible) {
 		out = append(out, "")
 	}
-	if bottom != "" && len(out) < height {
+	out = append(out, visible...)
+	if len(out) > room {
+		out = out[len(out)-room:]
+	}
+	// Every row filled: a frame shorter than the terminal leaves the previous one showing underneath it.
+	for len(out) < room {
+		out = append(out, "")
+	}
+	if bottom != "" {
 		out = append(out, bottom)
 	}
 	return out

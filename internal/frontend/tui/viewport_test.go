@@ -233,3 +233,76 @@ func TestComposeWithoutABottomUsesTheWholeWindow(t *testing.T) {
 		t.Errorf("the frame is %v, want the newest three", frame)
 	}
 }
+
+// TestComposeKeepsTheAnchoredRow is the review's first blocking finding: Compose re-sliced from the end, so a full window
+// dropped the very line the viewport had anchored to — on every frame, since a full window is the normal case.
+func TestComposeKeepsTheAnchoredRow(t *testing.T) {
+	t.Parallel()
+	v := NewViewport(5)
+	v.SetLines(numbered(50))
+	anchor := v.Visible()[0]
+
+	frame := Compose(v.Visible(), "status", 6)
+	if len(frame) != 6 {
+		t.Fatalf("the frame is %d rows", len(frame))
+	}
+	if frame[0] != anchor {
+		t.Errorf("the frame starts at %q, want the anchored line %q", frame[0], anchor)
+	}
+	if frame[len(frame)-1] != "status" {
+		t.Errorf("the last row is %q", frame[len(frame)-1])
+	}
+}
+
+// TestComposeFillsEveryRowWithNoBottom: a frame shorter than the terminal leaves the previous one showing underneath.
+func TestComposeFillsEveryRowWithNoBottom(t *testing.T) {
+	t.Parallel()
+	for _, height := range []int{1, 5} {
+		for _, lines := range []int{0, 2, 50} {
+			v := NewViewport(height)
+			v.SetLines(numbered(lines))
+			if got := len(Compose(v.Visible(), "", height)); got != height {
+				t.Errorf("%d lines of history in a %d-row window produced %d rows", lines, height, got)
+			}
+		}
+	}
+}
+
+// TestShrinkingToTheBottomResumesFollowing is the review's third blocking finding: the anchor moved but the following flag
+// did not, so the state contradicted itself and the next line would not be tracked.
+func TestShrinkingToTheBottomResumesFollowing(t *testing.T) {
+	t.Parallel()
+	v := NewViewport(5)
+	v.SetLines(numbered(50))
+	v.ScrollBy(-3) // up three, so the anchor is real
+	if v.Following() {
+		t.Fatal("scrolling up left it following")
+	}
+
+	// The content shrinks back to the window, so the anchor lands on the tail.
+	v.SetLines(numbered(5))
+	if !v.Following() {
+		t.Fatal("an anchor at the bottom is not following; the next line would be ignored")
+	}
+
+	v.SetLines(numbered(9))
+	if got := v.Visible(); got[len(got)-1] != "8" {
+		t.Errorf("the window did not track the new line: %v", got)
+	}
+}
+
+// TestAZeroHeightWindowDoesNotStrandTheReader: Options.Height can be zero, and a keypress there must not leave the anchor
+// past the end of the content.
+func TestAZeroHeightWindowDoesNotStrandTheReader(t *testing.T) {
+	t.Parallel()
+	v := NewViewport(0)
+	v.SetLines(numbered(10))
+	if got := v.Top(); got != 0 {
+		t.Errorf("a zero-height window reports top %d", got)
+	}
+	v.PageUp()
+	v.SetHeight(4)
+	if got := v.Visible(); len(got) == 0 || got[0] != "0" {
+		t.Errorf("after resizing, the window shows %v", got)
+	}
+}
