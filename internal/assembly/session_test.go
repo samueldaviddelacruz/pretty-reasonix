@@ -152,3 +152,37 @@ func TestWhichSessionARunOpens(t *testing.T) {
 		}
 	})
 }
+
+// TestCloseReleasesTheWorkspaceHandle is the review finding: the directory descriptor a run is confined to was opened and
+// never closed, so every session leaked one.
+func TestCloseReleasesTheWorkspaceHandle(t *testing.T) {
+	t.Parallel()
+	paths := sessions(t)
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	layout, _, _, err := openSession(paths, Options{Now: now}, "sess-close")
+	if err != nil {
+		t.Fatalf("openSession: %v", err)
+	}
+	// NewPersistent creates the layout, so calling Create first would have it refuse an id already in use.
+	root, err := os.OpenRoot(paths.SessionsDir)
+	if err != nil {
+		t.Fatalf("OpenRoot: %v", err)
+	}
+	transcript, err := session.NewPersistent(layout)
+	if err != nil {
+		t.Fatalf("NewPersistent: %v", err)
+	}
+
+	run := &Run{Transcript: transcript, root: root}
+	if closeErr := run.Close(); closeErr != nil {
+		t.Fatalf("Close: %v", closeErr)
+	}
+	if run.root != nil {
+		t.Error("Close kept the workspace handle")
+	}
+	// And a second Close is harmless, which is what lets the caller close explicitly and defer a safety net — the same
+	// arrangement the session transcript already supports.
+	if closeErr := run.Close(); closeErr != nil {
+		t.Errorf("a second Close returned %v", closeErr)
+	}
+}
