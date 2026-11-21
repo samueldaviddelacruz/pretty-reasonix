@@ -30,6 +30,12 @@ type Options struct {
 	Print bool
 	// PromptFile reads the task from a file, for a prompt too long to quote.
 	PromptFile string
+	// Continue resumes the newest session.
+	Continue bool
+	// Resume names a session: an id, a path, or a substring of its title.
+	Resume string
+	// Copy starts from a copy of the resumed session and leaves the original untouched.
+	Copy bool
 }
 
 // Parse reads the arguments, accepting flags anywhere: before the verb, after it, or between the words of a
@@ -74,6 +80,12 @@ func Parse(args []string) (Options, error) {
 			options.Print = true
 		case "--prompt-file", "--file":
 			options.PromptFile, err = next()
+		case "--continue", "-c":
+			options.Continue = true
+		case "--resume":
+			options.Resume, err = next()
+		case "--copy":
+			options.Copy = true
 		default:
 			return Options{}, fmt.Errorf("unknown flag %q", name)
 		}
@@ -130,6 +142,15 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, config.BinaryName+" run: %v\n", err)
 		return 1
+	}
+	// A resume that had to set bytes aside says so, and so does a --continue that found nothing to continue: both are
+	// cases where the person expected one thing and got another, and silence would look like the difference between
+	// them did not exist.
+	if notice := built.Recovered.Notice(); notice != "" {
+		_, _ = fmt.Fprintln(stderr, config.BinaryName+" run: "+notice)
+	}
+	if options.Continue && !built.Resumed {
+		_, _ = fmt.Fprintln(stderr, config.BinaryName+" run: nothing to continue; started a new session")
 	}
 	for _, warning := range built.Warnings {
 		_, _ = fmt.Fprintf(stderr, config.BinaryName+" run: %s: %s: %s\n", warning.Source, warning.Key, warning.Note)

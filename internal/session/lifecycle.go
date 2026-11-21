@@ -28,7 +28,9 @@ var (
 // comes from the operating system's random source rather than a counter, because two processes starting at the same
 // instant is exactly the case a counter would get wrong.
 func NewID(now time.Time) (string, error) {
-	suffix := make([]byte, 2)
+	// Four bytes, not two. Two gives 65,536 values, which collides about once in fifty runs of a fifty-draw test —
+	// the flake is the probability, not the test. Four makes a collision negligible while keeping the name short.
+	suffix := make([]byte, 4)
 	if _, err := rand.Read(suffix); err != nil {
 		return "", fmt.Errorf("naming the session: %w", err)
 	}

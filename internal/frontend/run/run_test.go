@@ -122,3 +122,25 @@ func TestPrintAndPromptFileAreParsed(t *testing.T) {
 		t.Errorf("parsed %+v, want the prompt file", fromFile)
 	}
 }
+
+// TestTheSessionFlagsAreParsed: three flags that decide which conversation a run belongs to.
+func TestTheSessionFlagsAreParsed(t *testing.T) {
+	t.Parallel()
+	cont, err := run.Parse([]string{"--continue", "do it"})
+	if err != nil || !cont.Continue {
+		t.Fatalf("--continue parsed as %+v (%v)", cont, err)
+	}
+	resumed, err := run.Parse([]string{"--resume", "the parser question", "and then"})
+	if err != nil || resumed.Resume != "the parser question" {
+		t.Fatalf("--resume parsed as %+v (%v)", resumed, err)
+	}
+	copied, err := run.Parse([]string{"--copy", "--continue"})
+	if err != nil || !copied.Copy || !copied.Continue {
+		t.Fatalf("--copy parsed as %+v (%v)", copied, err)
+	}
+	// A short form for the one that is used most.
+	short, err := run.Parse([]string{"-c", "go"})
+	if err != nil || !short.Continue {
+		t.Fatalf("-c parsed as %+v (%v)", short, err)
+	}
+}
