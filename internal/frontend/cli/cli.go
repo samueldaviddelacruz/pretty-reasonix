@@ -13,12 +13,13 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
+
+	"github.com/charmbracelet/x/term"
 
 	"pretty-reasonix/internal/config"
 	"pretty-reasonix/internal/frontend/run"
@@ -113,17 +114,16 @@ func writeLines(w io.Writer, lines []string) error {
 // promise instead. The condition is deliberate: a program that draws escape sequences into a pipe has produced a file
 // nobody can read, so anything that is not a character device gets the usage text it always got.
 func startSession(stdout, stderr io.Writer) int {
-	file, isFile := stdout.(*os.File)
-	if !isFile || !isTerminal(file) {
+	// Both streams, because a program needs both: terminal output with piped input is a UI that can never receive a
+	// key, and it would fail as a hang rather than as a message.
+	if !bothAreTerminals(stdout, os.Stdin) {
 		return emit(stdout, append([]string{binaryVersion()}, usageLines...), exitOK)
 	}
 
-	// Ctrl-C is the program's own business once it owns the terminal: Bubble Tea installs the handler, quits cleanly,
-	// and restores. The context is the other way out — a caller that cancels gets the same tidy finish.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	err := tui.Run(ctx, tui.Options{
+	// Ctrl-C is handed to the program rather than intercepted: Bubble Tea installs its own handler, turns the signal
+	// into an interrupt, quits cleanly and restores the terminal. A second handler here would race it, and the loser
+	// would decide the exit code.
+	err := tui.Run(context.Background(), tui.Options{
 		In:  os.Stdin,
 		Out: stdout,
 		// The process boundary is where the wall clock is read; everything below takes one.
@@ -136,10 +136,29 @@ func startSession(stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// isTerminal reports whether a file is a character device, which is the standard library's only portable hint that
-// something is a terminal. It is not a guarantee — /dev/null is a character device too — but the program that follows
-// makes its own decision, and the cost of being wrong in that direction is a program that exits immediately.
-func isTerminal(file *os.File) bool {
-	info, err := file.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+// bothAreTerminals reports whether output and input are each a terminal.
+//
+// A real isatty, not os.ModeCharDevice: /dev/null is a character device, so a mode check would send `prx > /dev/null`
+// — the ordinary way to silence a program, and the shape CI uses — into a terminal program with no terminal, where it
+// hangs forever rather than exiting. Checking both is the same argument one stream further: terminal output with piped
+// input is a UI that can never receive a key.
+func bothAreTerminals(stdout io.Writer, stdin *os.File) bool {
+	file, isFile := stdout.(*os.File)
+	if !isFile {
+		return false
+	}
+	outFd, outErr := fileDescriptor(file)
+	inFd, inErr := fileDescriptor(stdin)
+	if outErr != nil || inErr != nil {
+		return false
+	}
+	return term.IsTerminal(outFd) && term.IsTerminal(inFd)
+}
+
+// fileDescriptor asks a file for its descriptor, which is what an isatty needs.
+func fileDescriptor(file *os.File) (uintptr, error) {
+	if file == nil {
+		return 0, errors.New("no file")
+	}
+	return file.Fd(), nil
 }

@@ -49,6 +49,7 @@ row is added by the ticket that first needs it.
 | `charm.land/bubbles/v2` | The components the UI is built from: textarea, viewport, spinner. | Reimplementing a text editor widget is a known rabbit hole. |
 | `charm.land/lipgloss/v2` | Styling and layout primitives. | Hand-written ANSI escapes in every render function. |
 | `charmbracelet/x/ansi` | Escape-sequence handling that the styling layer depends on. | Reimplementing a parser for the terminal's control sequences. |
+| `github.com/charmbracelet/x/term` | A real isatty, for deciding whether a bare invocation should start the terminal program (`E10-T9`). | `os.ModeCharDevice` is true for `/dev/null`, so a mode check sends `prx > /dev/null` into a program with no terminal, where it hangs. |
 | `charmbracelet/colorprofile` | Colour-depth detection, so a 256-colour terminal gets intentional colours rather than downsampled ones (TDD §6.12.6). | Guessing the terminal's capability from environment variables. |
 | `alecthomas/chroma/v2` | Syntax highlighting, behind an interface with a plain-text fallback (E13-T1). | No mature pure-Go alternative. |
 | `yuin/goldmark` | CommonMark plus GFM tables for rendering answers. | A hand-rolled markdown parser is a project of its own. |
