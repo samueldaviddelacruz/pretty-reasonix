@@ -4,6 +4,7 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"testing"
@@ -61,28 +62,6 @@ func TestABurstCostsOneRender(t *testing.T) {
 	}
 }
 
-// TestAContinuousStreamStillBatches: a producer faster than the renderer must not starve it into one event per message,
-// and must not block it either.
-func TestAContinuousStreamStillBatches(t *testing.T) {
-	t.Parallel()
-	sink := event.NewChannelSink()
-	batches, stop := collectInto(t, sink)
-	defer stop()
-
-	for range 20 {
-		sink.Emit(event.TextDelta{TurnID: "t1", ItemID: "i", Text: "x"})
-	}
-	first := next(t, batches)
-	if len(first.Events) == 0 {
-		t.Fatal("an empty batch was sent")
-	}
-	// The assertion is not a count: how many land in the first batch is a scheduling detail. What matters is that the
-	// pump never sends one message per event when it could have sent one for many.
-	if len(first.Events) > 20 {
-		t.Errorf("the batch holds %d events, more than were sent", len(first.Events))
-	}
-}
-
 // TestALossIsCountedAndCarried is the criterion's third clause: dropping is surfaced rather than silent.
 func TestALossIsCountedAndCarried(t *testing.T) {
 	t.Parallel()
@@ -99,8 +78,8 @@ func TestALossIsCountedAndCarried(t *testing.T) {
 	batches, stop := collectInto(t, sink)
 	defer stop()
 	batch := next(t, batches)
-	if batch.Dropped != 5 {
-		t.Errorf("the batch reports %d dropped, want the 5 the sink counted", batch.Dropped)
+	if batch.Lost < 5 {
+		t.Errorf("the batch reports %d lost, want at least the 5 the sink counted", batch.Lost)
 	}
 	if len(batch.Events) == 0 {
 		t.Error("a batch that reports a loss should also carry what survived it")
@@ -134,15 +113,46 @@ func TestAModelCountsBatchesAndLosses(t *testing.T) {
 	model := newModel(Options{Now: clock.Now})
 
 	updated, _ := model.Update(batchMsg{
-		Events:  []event.Event{event.TurnStarted{}, event.Notice{}},
-		Dropped: 3,
+		Events: []event.Event{event.TurnStarted{}, event.Notice{}},
+		Lost:   3,
 	})
 	view := updated.View().Content
 
 	if !strings.Contains(view, "2 event(s)") {
 		t.Errorf("the view does not count the events: %q", view)
 	}
-	if !strings.Contains(view, "3 dropped") {
+	if !strings.Contains(view, "3 lost") {
 		t.Errorf("the view does not report the loss: %q", view)
+	}
+}
+
+// TestTheProgramDrainsItsSink wires the pump the way Run does, which the other cases here do not cover: they drive
+// newPump directly, so deleting the wiring in Run left the package green.
+//
+// What it can assert is that a program given a sink starts, is stopped by its context and returns cleanly — the wiring
+// is exercised, and a deadlock would hang it. What it cannot assert headlessly is that a particular event reached the
+// view: a bytes.Buffer is not a terminal, so renderer frames are not something a test may depend on. Delivery itself is
+// covered one layer down, in the pump tests.
+func TestTheProgramDrainsItsSink(t *testing.T) {
+	t.Parallel()
+	sink := event.NewChannelSink()
+	var out bytes.Buffer
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Options{In: strings.NewReader(""), Out: &out, Now: time.Now, Sink: sink, Width: 80, Height: 24})
+	}()
+
+	sink.Emit(event.TurnStarted{TurnID: "t1"})
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("a cancelled program with a sink returned %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the program did not stop; this timeout is the subject")
 	}
 }

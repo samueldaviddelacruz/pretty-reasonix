@@ -77,8 +77,17 @@ func Run(ctx context.Context, options Options) error {
 	// screen appearing and the first read, and stopped by cancelling its context on the way out.
 	if options.Sink != nil {
 		pumpCtx, stopPump := context.WithCancel(ctx)
-		defer stopPump()
-		go newPump(options.Sink, program.Send).run(pumpCtx)
+		pumped := make(chan struct{})
+		go func() {
+			defer close(pumped)
+			newPump(options.Sink, program.Send).run(pumpCtx)
+		}()
+		// Cancelled *and* waited for: a pump left running keeps consuming the caller's sink, and two Runs over one
+		// sink would have two pumps splitting the events between them.
+		defer func() {
+			stopPump()
+			<-pumped
+		}()
 	}
 
 	if _, err := program.Run(); err != nil {
@@ -113,7 +122,7 @@ type model struct {
 	started time.Time
 	frames  int
 	events  int
-	dropped int64
+	lost    int64
 }
 
 // newModel builds the initial state.
@@ -149,7 +158,8 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case batchMsg:
 		// One render for the whole burst, which is the point of the batch existing.
 		m.events += len(typed.Events)
-		m.dropped += typed.Dropped
+		// Stored, not added: the pump reports a total, and accumulating it would square the loss.
+		m.lost = typed.Lost
 	}
 	return m, nil
 }
@@ -164,8 +174,8 @@ func (m *model) View() tea.View {
 	elapsed := m.now().Sub(m.started).Round(time.Second)
 	// Dropped is shown next to the count rather than instead of it: a renderer that said only "3 lost" would leave a
 	// reader unable to tell whether anything arrived at all.
-	view := tea.NewView(fmt.Sprintf("pretty-reasonix · %s · %dx%d · %s · %d frame(s) · %d event(s) · %d dropped\n",
-		mode, m.width, m.height, elapsed, m.frames, m.events, m.dropped))
+	view := tea.NewView(fmt.Sprintf("pretty-reasonix · %s · %dx%d · %s · %d frame(s) · %d event(s) · %d lost\n",
+		mode, m.width, m.height, elapsed, m.frames, m.events, m.lost))
 	// Alt screen is per-View, so this is where the modes actually differ: fullscreen takes the terminal over, inline
 	// leaves the person's scrollback where it was.
 	view.AltScreen = !m.inline

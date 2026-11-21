@@ -28,6 +28,10 @@ type ChannelSink struct {
 	// decide to report the same losses.
 	mu      sync.Mutex
 	dropped int64
+	// total is never reset. A frontend that wants to say "N events were lost" needs a number it can trust; dropped is
+	// the pending count, which the notice resets the moment it lands, so summing it counts the same loss twice or
+	// misses it entirely depending on when the read lands. Both exist because they answer different questions.
+	total int64
 }
 
 // NewChannelSink makes a sink whose buffer a frontend drains from its own goroutine.
@@ -60,12 +64,20 @@ func (s *ChannelSink) Emit(e Event) {
 	default:
 		s.mu.Lock()
 		s.dropped++
+		s.total++
 		s.mu.Unlock()
 	}
 }
 
 // Events is the channel a frontend drains. It is the same channel on every call.
 func (s *ChannelSink) Events() <-chan Event { return s.ch }
+
+// TotalDropped is every event this sink has ever lost, which is the only number a frontend may accumulate.
+func (s *ChannelSink) TotalDropped() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.total
+}
 
 // Dropped is how many events are lost and not yet reported.
 func (s *ChannelSink) Dropped() int64 {

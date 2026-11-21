@@ -15,9 +15,12 @@ import (
 // the same work either way; only the redraws collapse.
 type batchMsg struct {
 	Events []event.Event
-	// Dropped is how many events the sink lost and has not yet reported. It travels with the batch rather than on its
-	// own, because a loss is only meaningful next to what survived it.
-	Dropped int64
+	// Lost is every event the sink has dropped so far, not the ones lost in this batch.
+	//
+	// A total rather than a delta, because the sink's pending count is reset by the notice it emits: reading that as a
+	// per-batch number would count the same loss twice or miss it, depending on whether the read landed before or
+	// after. A total is idempotent to store, and the model stores it rather than adding to it.
+	Lost int64
 }
 
 // pump drains a sink and hands the program one message per burst.
@@ -51,7 +54,7 @@ func (p *pump) run(ctx context.Context) {
 			// Everything already queued goes in the same message. The select's default is what makes this a drain
 			// rather than a wait: if the channel is empty the batch ships now, and the next burst starts a new one.
 			batch := collect(first, events)
-			p.send(batchMsg{Events: batch, Dropped: p.sink.Dropped()})
+			p.send(batchMsg{Events: batch, Lost: p.sink.TotalDropped()})
 		}
 	}
 }
@@ -61,16 +64,18 @@ func (p *pump) run(ctx context.Context) {
 // A closed channel ends the batch rather than producing a zero event: the pump's own exit follows on the next
 // iteration, and inventing an event here would put a message in front of the model that the engine never sent.
 func collect(first event.Event, events <-chan event.Event) []event.Event {
-	batch := []event.Event{first}
-	for {
-		select {
-		case next, ok := <-events:
-			if !ok {
-				return batch
-			}
-			batch = append(batch, next)
-		default:
-			return batch
+	// Bounded by what was queued when the burst began. Without a bound, a producer fast enough to keep the sink
+	// non-empty makes an empty-channel check unreachable: no batch is ever sent, the renderer starves, and the slice
+	// grows without limit — and the drop policy exists exactly for that producer.
+	queued := len(events)
+	batch := make([]event.Event, 0, queued+1)
+	batch = append(batch, first)
+	for range queued {
+		next, ok := <-events
+		if !ok {
+			break
 		}
+		batch = append(batch, next)
 	}
+	return batch
 }
