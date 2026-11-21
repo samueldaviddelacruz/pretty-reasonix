@@ -44,3 +44,13 @@ go.work.sum
 
 # Local agent tooling config: machine-specific, not the project's.
 /.claude/
+
+# Machine-local editor and tool state, and scratch output from other agents.
+.DS_Store
+/.vscode/
+/opencode.jsonc
+/summary.txt
+
+# The harness's own project memory: it accumulates local paths and session notes, so it is
+# machine-specific even when a line of it is worth sharing.
+/AGENTS.md
