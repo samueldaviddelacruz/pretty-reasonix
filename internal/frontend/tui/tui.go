@@ -39,6 +39,10 @@ type Options struct {
 	// only way to see it move is to sleep — and rules [#86]/[#87] exist so that a frontend never forces a test to.
 	Now func() time.Time
 
+	// Send is what a submitted message goes to. Nil is a program that records what was typed and does nothing with
+	// it, which is what makes the input path testable without a controller behind it.
+	Send func(string)
+
 	// Sink is the engine's event channel. When it is set, the program drains it and folds what arrives into one update
 	// per burst; when it is nil the program draws its skeleton and nothing else.
 	Sink *event.ChannelSink
@@ -124,8 +128,15 @@ type model struct {
 	frames  int
 	// reducer is the transcript. The model owns it and the view reads it, which is what keeps drawing stateless.
 	reducer *Reducer
-	// viewport is how much of it fits, and where the reader is looking. Its height is the window minus the status row.
+	// viewport is how much of it fits, and where the reader is looking.
 	viewport *Viewport
+	// composer is where typing lands, and stack is whatever modal has taken the keyboard.
+	composer *Composer
+	stack    *Stack
+	// send is where a submitted message goes, or nil.
+	send func(string)
+	// lastSent is what was last submitted, so a test can assert that Enter did something without a controller.
+	lastSent string
 	events   int
 	lost     int64
 }
@@ -139,7 +150,10 @@ func newModel(options Options) *model {
 		height:   options.Height,
 		started:  options.Now(),
 		reducer:  NewReducer(),
-		viewport: NewViewport(max(options.Height-1, 0)),
+		viewport: NewViewport(max(options.Height-2, 0)),
+		composer: NewComposer(CursorBar),
+		stack:    &Stack{},
+		send:     options.Send,
 	}
 }
 
@@ -153,14 +167,40 @@ func (*model) Init() tea.Cmd { return nil }
 func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch typed := message.(type) {
 	case tea.KeyPressMsg:
-		// Ctrl-C is the one binding the skeleton needs: without it a program started by mistake cannot be left except
-		// by killing the process, which would not restore the terminal.
-		if typed.String() == "ctrl+c" {
+		// Global bindings first, before the overlay stack: Escape and Ctrl-C are the caller's, and an overlay must not be
+		// able to take away the key that leaves.
+		switch typed.String() {
+		case "ctrl+c":
 			return m, tea.Quit
+		case "esc":
+			m.stack.Pop()
+		}
+		// Then the overlay: a modal owns the keyboard, so nothing below it — the composer included — reacts.
+		if m.stack.Swallows() {
+			return m, nil
+		}
+		// Then the composer.
+		switch ActionOf(KeyOf(typed)) {
+		case ActionSend:
+			m.submit()
+		case ActionNewline:
+			m.composer.Newline()
+		case ActionNone:
+			switch typed.String() {
+			case "backspace":
+				m.composer.Backspace()
+			default:
+				m.composer.Insert(typed.Text)
+			}
+		}
+	case tea.PasteMsg:
+		// A bracketed paste arrives as one message with its whole content, which is what makes folding it into a token
+		// possible: by the time the keys were separate, the lines would already be in the composer.
+		if !m.stack.Swallows() {
+			m.composer.Paste(typed.Content)
 		}
 	case tea.WindowSizeMsg:
 		m.width, m.height = typed.Width, typed.Height
-		m.viewport.SetHeight(max(typed.Height-1, 0))
 	case frameMsg:
 		m.frames++
 	case batchMsg:
@@ -174,6 +214,10 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		// Stored, not added: the pump reports a total, and accumulating it would square the loss.
 		m.lost = typed.Lost
 	}
+	// Derived once, at the end of every update. The bottom region depends on the composer's height and on whether an
+	// overlay has taken the screen, and syncing it at each site that changes either was wrong twice: a modal opening and
+	// an overlay closing each grew the frame past the terminal until the next key.
+	m.syncViewport()
 	return m, nil
 }
 
@@ -199,13 +243,22 @@ func (m *model) View() tea.View {
 	}
 	m.viewport.SetLines(lines)
 
+	// The composer and the status line are the pinned bottom; the viewport above them gets what is left. The composer is
+	// hidden entirely when an overlay has taken the keyboard, which is what BottomHeight computes.
 	var body strings.Builder
-	status := fmt.Sprintf("pretty-reasonix · %s · %dx%d · %s · %d frame(s) · %d event(s) · %d lost · %s",
-		mode, m.width, m.height, elapsed, m.frames, m.events, m.lost, followingLabel(m.viewport))
-	for _, line := range Compose(m.viewport.Visible(), status, max(m.height, 1)) {
+	for _, line := range m.viewport.Visible() {
 		body.WriteString(line)
 		body.WriteString("\n")
 	}
+	if m.stack.ComposerVisible() {
+		for line := range strings.SplitSeq(m.composer.Raw(), "\n") {
+			fmt.Fprintf(&body, "> %s\n", line)
+		}
+	}
+	status := fmt.Sprintf("pretty-reasonix · %s · %dx%d · %s · %d frame(s) · %d event(s) · %d lost · %s · cursor:%s",
+		mode, m.width, m.height, elapsed, m.frames, m.events, m.lost, followingLabel(m.viewport), m.composer.Shape())
+	body.WriteString(status)
+	body.WriteString("\n")
 	view := tea.NewView(body.String())
 	// Alt screen is per-View, so this is where the modes actually differ: fullscreen takes the terminal over, inline
 	// leaves the person's scrollback where it was.
@@ -220,4 +273,29 @@ func followingLabel(v *Viewport) string {
 		return "following"
 	}
 	return "paused"
+}
+
+// submit hands the composer's text to the caller and clears it.
+//
+// Clearing before the send rather than after: if the caller blocks, a composer still holding the message invites a second
+// Enter and a duplicate question. What was sent is remembered, so a test asserts the text rather than the absence of it.
+func (m *model) submit() {
+	text := strings.TrimSpace(m.composer.Value())
+	if text == "" {
+		return
+	}
+	m.lastSent = text
+	m.composer.Clear()
+	if m.send != nil {
+		m.send(text)
+	}
+}
+
+// syncViewport gives the transcript whatever the bottom region does not need.
+//
+// Recomputed rather than stored: the composer grows as lines are added and shrinks when an overlay hides it, so a height
+// captured once would be wrong by the second keystroke.
+func (m *model) syncViewport() {
+	bottom := m.stack.BottomHeight(m.composer.Height(), 1)
+	m.viewport.SetHeight(max(m.height-bottom, 0))
 }
