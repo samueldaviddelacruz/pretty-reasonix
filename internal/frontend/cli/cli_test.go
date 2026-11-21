@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -87,4 +88,39 @@ type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) {
 	return 0, errors.New("the terminal is gone")
+}
+
+// TestABareInvocationWithoutATerminalStillPrintsUsage is E10-T9's second clause, and the one a headless test can assert:
+// escape sequences written into a pipe produce a file nobody can read, so the usage text stays.
+func TestABareInvocationWithoutATerminalStillPrintsUsage(t *testing.T) {
+	t.Parallel()
+	var stdout, stderr bytes.Buffer
+	if code := cli.Run(nil, &stdout, &stderr); code != 0 {
+		t.Errorf("a bare invocation exited %d, want 0", code)
+	}
+	if !strings.Contains(stdout.String(), "Usage:") {
+		t.Errorf("a bare invocation on a buffer printed %q, want usage", stdout.String())
+	}
+	// The line that has promised a session since E1 is still there, and now describes something that exists.
+	if !strings.Contains(stdout.String(), "start an interactive session") {
+		t.Error("the usage text no longer mentions the interactive session")
+	}
+}
+
+// TestSilencedOutputDoesNotStartASession is the regression review found: /dev/null is a character device, so a mode
+// check would have sent `prx > /dev/null` into a terminal program with no terminal, where it hangs forever instead of
+// exiting. The assertion is that this test finishes at all; the timeout in `go test` is the guard that would catch a
+// regression here, because a hang cannot assert about itself.
+func TestSilencedOutputDoesNotStartASession(t *testing.T) {
+	t.Parallel()
+	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("opening %s: %v", os.DevNull, err)
+	}
+	defer func() { _ = devNull.Close() }()
+
+	var stderr bytes.Buffer
+	if code := cli.Run(nil, devNull, &stderr); code != 0 {
+		t.Errorf("a bare invocation redirected to %s exited %d, want 0", os.DevNull, code)
+	}
 }

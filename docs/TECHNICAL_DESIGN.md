@@ -953,7 +953,7 @@ Detail, dependencies and per-ticket acceptance criteria are in **Appendix B**.
 | **E7** | Sandbox and workspace trust | M1 | 7 |
 | **E8** | Context management and compaction | M3 | 7 |
 | **E9** | Sessions, storage and continuity | M0–M3 | 11 |
-| **E10** | TUI shell, transcript and rendering | M2 | 8 |
+| **E10** | TUI shell, transcript and rendering | M2 | 9 |
 | **E11** | TUI interaction surfaces | M2 | 10 |
 | **E12** | Theming, keymap and i18n | M2 | 6 |
 | **E13** | Code, diff and markdown rendering | M2 | 5 |
