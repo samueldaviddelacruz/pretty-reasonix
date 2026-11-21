@@ -262,7 +262,9 @@ func openSession(paths config.Paths, options Options, id string) (session.Layout
 		}
 		if options.Copy {
 			copied, copyErr := session.Copy(resolved, id, options.Now)
-			return copied, false, session.Recovered{}, copyErr
+			// Resumed, because the copy *is* the session this run continues: its messages have to be loaded, and
+			// NewPersistent would refuse the file Copy has just written.
+			return copied, true, session.Recovered{}, copyErr
 		}
 		recovered, err := session.Recover(resolved)
 		return resolved, true, recovered, err
@@ -277,7 +279,7 @@ func openSession(paths config.Paths, options Options, id string) (session.Layout
 		}
 		if options.Copy {
 			copied, copyErr := session.Copy(newest, id, options.Now)
-			return copied, false, session.Recovered{}, copyErr
+			return copied, true, session.Recovered{}, copyErr
 		}
 		recovered, err := session.Recover(newest)
 		return newest, true, recovered, err

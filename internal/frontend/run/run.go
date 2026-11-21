@@ -130,11 +130,14 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	sink := &printer{stdout: stdout, stderr: stderr, quiet: options.Print}
 	built, err := assembly.Build(assembly.Options{
-		Root:   options.Dir,
-		Model:  options.Model,
-		Effort: options.Effort,
-		Preset: options.Preset,
-		Sink:   sink,
+		Root:     options.Dir,
+		Model:    options.Model,
+		Effort:   options.Effort,
+		Preset:   options.Preset,
+		Sink:     sink,
+		Continue: options.Continue,
+		Resume:   options.Resume,
+		Copy:     options.Copy,
 		// The process boundary is where the real clock is read; everything below takes one. Rule [#87] asks for
 		// injection, and this is the injection point rather than an exception to it.
 		Now: time.Now(), //nolint:forbidigo // the CLI is the boundary that reads the wall clock
