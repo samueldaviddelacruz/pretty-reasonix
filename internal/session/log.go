@@ -22,8 +22,8 @@ const (
 var (
 	// ErrChainBroken reports an append that would leave a gap: the message index does not follow the log.
 	ErrChainBroken = errors.New("the append does not continue the log")
-	// ErrEmptyDigest reports a record with nothing to digest, which is a bug at the call site.
-	ErrEmptyDigest = errors.New("a message with no content has no digest")
+	// ErrSessionClosed reports a message appended after the session was finished.
+	ErrSessionClosed = errors.New("the session has already been closed")
 )
 
 // SchemaVersion is the record format this writer produces.
@@ -69,6 +69,13 @@ type Log struct {
 // A transcript can hold anything a person typed and anything a tool printed, so 0600 is the only defensible mode:
 // the file is as sensitive as the conversation in it.
 func CreateLog(eventsPath, canonicalPath string) (*Log, error) {
+	// The existing chain is read before the file is opened for appending, because a writer that started its counters
+	// at zero would stamp the next message with an index the log has already passed — which salvage reads as damage
+	// and truncates away. Opening an existing log means continuing it.
+	revision, length, err := chainOf(eventsPath)
+	if err != nil {
+		return nil, err
+	}
 	events, err := os.OpenFile(eventsPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // G304: the caller names the session's own file
 	if err != nil {
 		return nil, fmt.Errorf("opening the event log: %w", err)
@@ -78,7 +85,46 @@ func CreateLog(eventsPath, canonicalPath string) (*Log, error) {
 		_ = events.Close()
 		return nil, fmt.Errorf("opening the canonical transcript: %w", err)
 	}
-	return &Log{events: events, canonical: canonical}, nil
+	return &Log{events: events, canonical: canonical, revision: revision, length: length}, nil
+}
+
+// chainOf reads the revision and message count an existing log ends at.
+//
+// It is strict on purpose: a log this writer cannot follow is one a caller must recover first, because stamping new
+// records onto a chain nobody could parse is how a damaged file becomes an unusable one.
+func chainOf(eventsPath string) (int, int, error) {
+	body, err := os.ReadFile(eventsPath) //nolint:gosec // G304: the path is the session's own
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, 0, nil
+	}
+	if err != nil {
+		return 0, 0, fmt.Errorf("reading the event log: %w", err)
+	}
+
+	read := judge(body)
+	if read.newer != nil {
+		return 0, 0, read.newer
+	}
+	if read.good != len(body) {
+		return 0, 0, fmt.Errorf("%w: recover the session before appending to it", ErrChainBroken)
+	}
+
+	// The revision is the last record's, which is not the same as the message count: a replace keeps the second low
+	// while the first keeps climbing.
+	revision := 0
+	for len(body) > 0 {
+		line, rest := cutLine(body)
+		body = rest
+		if len(line) == 0 {
+			continue
+		}
+		var record Record
+		if decodeErr := json.Unmarshal(line, &record); decodeErr != nil {
+			return 0, 0, fmt.Errorf("reading the event log: %w", decodeErr)
+		}
+		revision = record.Revision
+	}
+	return revision, len(read.messages), nil
 }
 
 // Append adds one message, refusing to leave a gap.
@@ -87,9 +133,9 @@ func CreateLog(eventsPath, canonicalPath string) (*Log, error) {
 // record means something was lost between them, and a reader that silently accepted it would answer questions about
 // a conversation that never happened.
 func (l *Log) Append(message Message) error {
-	if message.Content == "" {
-		return ErrEmptyDigest
-	}
+	// An empty content is ordinary rather than refused: a tool-only round commits an assistant message with no prose,
+	// and a tool that printed nothing produces an empty result. Refusing it stopped the log for the rest of the
+	// session, which is a far worse outcome than a record whose digest covers nothing.
 	digest := digestOf(message)
 
 	l.revision++

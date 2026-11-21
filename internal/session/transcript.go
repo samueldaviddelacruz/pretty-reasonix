@@ -32,6 +32,20 @@ type Message struct {
 // cannot rewrite what was already said.
 type Transcript struct {
 	messages []Message
+	// log is optional: a transcript built without one is the in-memory record the tests and the
+	// first draft of a turn use, and a transcript built with one is the same record plus a copy on
+	// disk. Nothing else in this type changes, which is why persistence arrives without a second
+	// code path through the controller.
+	log *Log
+	// closed records that the log has been finished, so a later append is reported as the mistake it is rather than
+	// silently dropped.
+	closed bool
+	// writeErr is the first failure to persist, kept rather than returned.
+	//
+	// Append takes no error because the turn has already produced an answer worth showing: a session
+	// that cannot be written is a loss of history, and failing the turn over it would throw away the
+	// answer too. The caller reports this once, at the end, rather than the loop deciding per message.
+	writeErr error
 }
 
 // Append records m at the end of the transcript. It does nothing else: every
@@ -39,6 +53,39 @@ type Transcript struct {
 // made by the caller that knows the reason.
 func (t *Transcript) Append(m Message) {
 	t.messages = append(t.messages, m)
+	if t.log == nil || t.writeErr != nil {
+		return
+	}
+	if t.closed {
+		// Writing to a finished session is a bug at the call site, and one worth hearing about: the message would
+		// otherwise be in the transcript the frontend shows and in nothing that survives the process.
+		t.writeErr = ErrSessionClosed
+		return
+	}
+	t.writeErr = t.log.Append(m)
+}
+
+// WriteError reports the first failure to persist, or nil when every message reached the log.
+//
+// It exists so that losing history is *reported* rather than silent: a transcript that quietly stopped writing would
+// look exactly like a transcript that worked, which is the failure mode this whole store exists to prevent.
+func (t *Transcript) WriteError() error { return t.writeErr }
+
+// Close finishes the session's log. It is safe on a transcript that has none.
+func (t *Transcript) Close() error {
+	if t.log == nil || t.closed {
+		// A second Close is a no-op rather than an error about a closed descriptor: the caller closes explicitly for
+		// the error and defers one as a safety net, and both are reasonable.
+		return t.writeErr
+	}
+	t.closed = true
+	log := t.log
+	// A write that already failed is the more useful of the two errors: it names what went wrong with the conversation.
+	if t.writeErr != nil {
+		_ = log.Close()
+		return t.writeErr
+	}
+	return log.Close()
 }
 
 // All returns a copy of the record, so a caller can read the whole history
