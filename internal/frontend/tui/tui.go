@@ -1,7 +1,3 @@
-// Package tui is the terminal frontend: a Bubble Tea program that drives the same controller the headless runner does.
-//
-// This ticket is the skeleton — the program, its options, and the promise that the terminal is given back. The
-// conversation, the composer and the transcript rows are E10's later tickets and E11's.
 package tui
 
 import (
@@ -40,17 +36,18 @@ type Options struct {
 	// only way to see it move is to sleep — and rules [#86]/[#87] exist so that a frontend never forces a test to.
 	Now func() time.Time
 
-	// Width and Height are the starting size, for a terminal that cannot report its own. Zero asks the program to
-	// measure one.
+	// Width and Height are the starting size. Zero leaves the size unknown until the terminal reports one, which a
+	// real terminal always does and a buffer never will — so a headless test sees 0x0 forever, and that is expected.
 	Width, Height int
 }
 
 // Run starts the terminal program and returns when it exits.
 //
-// The terminal is restored on every path out of here — a clean quit, an error, a cancelled context, and a panic —
-// because a program that leaves a terminal in raw mode with the cursor hidden has broken the person's shell, and that
-// is a worse outcome than the crash that caused it.
-func Run(ctx context.Context, options Options) (err error) {
+// The terminal is restored by the program itself, on every path out of Run — a clean quit, an error, a cancelled
+// context and a panic. This function deliberately does not call RestoreTerminal: in Bubble Tea v2 that is
+// ReleaseTerminal's *inverse*, re-initialising the input reader and re-entering raw mode, so calling it after Run has
+// already restored would leave the shell exactly as broken as a crash would.
+func Run(ctx context.Context, options Options) error {
 	if options.Now == nil {
 		return ErrNoClock
 	}
@@ -66,24 +63,17 @@ func Run(ctx context.Context, options Options) (err error) {
 		// The renderer is left on: it is what emits the restore sequences, and the output writer is the only
 		// terminal the program has.
 		tea.WithWindowSize(options.Width, options.Height),
-		// Signals are the CLI's business, and installing a handler here would fight the one `cmd/prx` sets up.
-		tea.WithoutSignalHandler(),
 	)
 
-	// Deferred before Run rather than after it, so a panic inside the program is covered too. Bubble Tea catches
-	// panics by default and restores on the way out, but this makes the promise local: whichever of the two runs
-	// first, the terminal is given back, and a second restore is a no-op.
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("the terminal program panicked: %v", recovered)
+	if _, err := program.Run(); err != nil {
+		// A cancelled context is how the caller stops the program rather than a failure of it: the CLI maps its own
+		// shutdown to a clean exit, and reporting ErrProgramKilled here would make Ctrl-C look like a crash.
+		if ctx.Err() != nil && errors.Is(err, tea.ErrProgramKilled) {
+			return nil
 		}
-		if restoreErr := program.RestoreTerminal(); restoreErr != nil && err == nil {
-			err = fmt.Errorf("restoring the terminal: %w", restoreErr)
-		}
-	}()
-
-	_, err = program.Run()
-	return err
+		return err
+	}
+	return nil
 }
 
 // frameMsg asks the model to redraw from the clock.
@@ -150,6 +140,10 @@ func (m *model) View() tea.View {
 		mode = "inline"
 	}
 	elapsed := m.now().Sub(m.started).Round(time.Second)
-	return tea.NewView(fmt.Sprintf("pretty-reasonix · %s · %dx%d · %s · %d frame(s)\n",
+	view := tea.NewView(fmt.Sprintf("pretty-reasonix · %s · %dx%d · %s · %d frame(s)\n",
 		mode, m.width, m.height, elapsed, m.frames))
+	// Alt screen is per-View, so this is where the modes actually differ: fullscreen takes the terminal over, inline
+	// leaves the person's scrollback where it was.
+	view.AltScreen = !m.inline
+	return view
 }

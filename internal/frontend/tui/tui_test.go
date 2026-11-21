@@ -40,9 +40,14 @@ func TestOptionsAreRefusedWithoutAClockOrTerminal(t *testing.T) {
 	}
 }
 
-// TestACancelledContextReturnsAndRestores runs the real program against buffers, which is the fake terminal this ticket
-// asks for: no tty, no escape sequences to a person, and the deferred restore still runs on the way out.
-func TestACancelledContextReturnsAndRestores(t *testing.T) {
+// TestACancelledContextReturns runs the real program against buffers: no tty, no escape sequences to a person.
+//
+// What it can and cannot assert, stated because the difference matters. A bytes.Buffer is not a terminal, so
+// `initInput` never enters raw mode, `restoreTerminalState` is a no-op, and there is nothing about the terminal's state
+// for a headless test to check. Bubble Tea restores on every return path from Run; this test proves the program
+// *returns* — that a cancelled context stops it, which is the part a headless run can be wrong about. The restore
+// itself is the library's promise, and the way to see it is to run the binary in a terminal and press Ctrl-C.
+func TestACancelledContextReturns(t *testing.T) {
 	t.Parallel()
 	var out bytes.Buffer
 	ctx, cancel := context.WithCancel(context.Background())
@@ -54,9 +59,11 @@ func TestACancelledContextReturnsAndRestores(t *testing.T) {
 	}()
 
 	select {
-	case <-done:
-		// Returned, which is the assertion: a frontend that could not be stopped by its context would hang the CLI's
-		// shutdown, and a hanging shutdown is what leaves a terminal in raw mode.
+	case runErr := <-done:
+		// A cancelled context is the caller stopping the program, not a failure of it.
+		if runErr != nil {
+			t.Errorf("a cancelled program returned %v, want nil", runErr)
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("a cancelled context did not stop the program; this is the one place a real timeout is the subject")
 	}
@@ -65,6 +72,9 @@ func TestACancelledContextReturnsAndRestores(t *testing.T) {
 // TestTheModelIsDrivenByTheInjectedClock is the criterion's second clause. Every timer here reads the clock, so a test
 // advances it and sends a frame — no sleeping, and the assertion is about the elapsed time the clock reports rather
 // than about how long the test happened to run.
+//
+// It drives the model directly rather than through the program: a frame is a message, and the message is the seam. The
+// program's own scheduling is the spinner ticket's subject.
 func TestTheModelIsDrivenByTheInjectedClock(t *testing.T) {
 	t.Parallel()
 	clock := &fakeClock{now: time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)}
