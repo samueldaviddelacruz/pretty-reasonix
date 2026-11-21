@@ -65,6 +65,9 @@ type Row struct {
 	Text string
 	// Settled means it will not change again, so a frontend may print it to the scrollback and forget it.
 	Settled bool
+	// Live is the part of a streaming row that could still change: everything after the last blank line outside a fence.
+	// A frontend renders Settled as history and Live as the region it repaints.
+	Live string
 	// Foldable marks a row a frontend may collapse once settled — reasoning, long tool output — and Folded is the
 	// current state of that. Inline mode prints the unfolded form because it cannot repaint.
 	Foldable bool
@@ -121,15 +124,21 @@ func (r *Reducer) Apply(e event.Event) {
 		r.append(Row{ID: typed.TurnID + "/you", Kind: RowUser, Text: typed.Input, Settled: true})
 
 	case event.ReasoningDelta:
-		row := r.item(typed.ItemID, typed.TurnID+"/reasoning", RowSay, typed.TurnID)
+		// Keyed by the turn, not the item: the engine gives one item id to a whole round, so reasoning and answer would
+		// otherwise share a row — and that row is foldable, so folding the thinking would fold away the answer.
+		row := r.item(reasonKey(typed.TurnID))
 		row.Foldable, row.Folded = true, true
-		row.Text += typed.Text
+		row.Text += normalise(typed.Text)
 		row.Settled = false
 
 	case event.TextDelta:
-		row := r.item(typed.ItemID, typed.TurnID+"/say", RowSay, typed.TurnID)
-		row.Text += typed.Text
-		row.Settled = false
+		row := r.item(answerKey(typed.TurnID))
+		row.Text += normalise(typed.Text)
+		_, live := settledPrefix(row.Text)
+		row.Settled = live == ""
+		if !row.Settled {
+			row.Live = live
+		}
 
 	case event.MessageCommitted:
 		// Committed wins over deltas: the deltas were a preview of exactly this, and the committed text is what the
@@ -137,11 +146,14 @@ func (r *Reducer) Apply(e event.Event) {
 		if typed.Message.Role != provider.RoleAssistant && typed.Message.Role != provider.RoleTool {
 			return
 		}
-		row := r.item(typed.ItemID, typed.TurnID+"/say", RowSay, typed.TurnID)
+		// The same key the deltas used, which is what makes a commit *correct* a streamed answer rather than printing a
+		// second one. The engine's commit carries a different id from its deltas, so keying on that id would append a
+		// duplicate row and leave the preview uncorrected.
+		row := r.item(answerKey(typed.TurnID))
 		if typed.Message.Content != "" {
-			row.Text = typed.Message.Content
+			row.Text = normalise(typed.Message.Content)
 		}
-		row.Settled = true
+		row.Settled, row.Live = true, ""
 
 	case event.ToolCallStarted:
 		r.callRow(typed.CallID, typed.TurnID, typed.Name)
@@ -200,8 +212,9 @@ func (r *Reducer) Apply(e event.Event) {
 		r.append(Row{ID: "compaction", Kind: RowCompaction, Text: "compacted", Settled: true})
 
 	case event.ApprovalRequested:
-		// The subject is what the decision is about — a path, a command — and the name is which rule asked.
-		r.append(Row{ID: typed.CallID, Kind: RowDecision, Text: typed.Name + " " + typed.Subject, CallID: typed.CallID})
+		// No CallID: a decision is not a tool row, and registering it in the tool map let a later result write onto the
+		// card.
+		r.append(Row{ID: "decision/" + typed.CallID, Kind: RowDecision, Text: typed.Name + " " + typed.Subject})
 
 	case event.AskRequested:
 		r.append(Row{ID: typed.ItemID, Kind: RowAsk, Text: askText(typed.Questions)})
@@ -227,22 +240,29 @@ func (r *Reducer) append(row Row) int {
 	return index
 }
 
-// item finds or creates the row a delta belongs to, and returns a pointer to it.
+// item finds or creates a turn-keyed row, and returns a pointer to it.
 //
-// A pointer rather than an index because every caller mutates what it gets, and passing an index around invites the
-// slice being reallocated underneath it.
-func (r *Reducer) item(itemID, fallbackID string, kind RowKind, turnID string) *Row {
-	key := itemID
-	if key == "" {
-		key = fallbackID
-	}
+// A pointer rather than an index: every caller mutates what it gets, and an index would go stale the moment an append
+// reallocated the slice.
+func (r *Reducer) item(key string) *Row {
 	if index, found := r.live[key]; found {
 		return &r.rows[index]
 	}
-	index := r.append(Row{ID: key, Kind: kind, Text: ""})
+	index := r.append(Row{ID: key, Kind: RowSay, Text: ""})
 	r.live[key] = index
 	return &r.rows[index]
 }
+
+// normalise folds CRLF to LF on the way in.
+//
+// Not cosmetic: a carriage return inside a rendered row is a real one - the terminal returns to column zero and the next
+// character overwrites the line. It also makes the settled rule work, because a CRLF answer contains no blank line for it
+// to find.
+func normalise(text string) string { return strings.ReplaceAll(text, "\r\n", "\n") }
+
+// answerKey and reasonKey name the two rows a turn grows.
+func answerKey(turnID string) string { return turnID + "/say" }
+func reasonKey(turnID string) string { return turnID + "/reasoning" }
 
 // callRow finds or creates the row a tool call owns.
 func (r *Reducer) callRow(callID, turnID, name string) *Row {
@@ -272,31 +292,52 @@ func (r *Reducer) indexOf(id string) (int, bool) {
 // contains blank lines, and splitting inside one would print half a listing to the scrollback and then re-render the
 // rest somewhere it can never be corrected. Inline mode cannot repaint, so this boundary is what keeps it honest.
 func settledPrefix(text string) (string, string) {
+	// Normalised first, because a CRLF answer would otherwise never contain a blank line and nothing would ever settle.
+	normalised := strings.ReplaceAll(text, "\r\n", "\n")
+
 	fenced := false
 	boundary := 0
-	for index := 0; index < len(text); index++ {
-		// A fence is a line beginning with three backticks; the same sequence closes it.
-		if isFenceLine(text, index) {
-			fenced = !fenced
-			index += 2 // the two remaining backticks of this fence
+	for index := 0; index < len(normalised); index++ {
+		if normalised[index] != '\n' && index != 0 && normalised[index-1] != '\n' {
 			continue
 		}
-		if !fenced && strings.HasPrefix(text[index:], "\n\n") {
+		// A fence opens or closes a block, and both ``` and ~~~ do it: markdown allows either, and a rule that knew only
+		// one would treat the other's contents as blank lines.
+		if length, fence := fenceAt(normalised, index); length > 0 {
+			_ = fence
+			fenced = !fenced
+			index += length - 1
+			continue
+		}
+		if !fenced && strings.HasPrefix(normalised[index:], "\n\n") {
 			boundary = index + 2
 		}
 	}
-	return text[:boundary], text[boundary:]
+	return text[:min(boundary, len(text))], text[min(boundary, len(text)):]
 }
 
-// isFenceLine reports whether a triple-backtick fence starts at index and begins its own line.
-func isFenceLine(text string, index int) bool {
-	if !strings.HasPrefix(text[index:], "```") {
-		return false
+// fenceAt reports the length of a fence marker at index, or 0. Up to three leading spaces are allowed before the
+// marker, which is what an indented code fence looks like.
+func fenceAt(text string, index int) (int, bool) {
+	start := index
+	for start < len(text) && start-index < 3 && text[start] == ' ' {
+		start++
 	}
-	if index == 0 {
-		return true
+	if start >= len(text) {
+		return 0, false
 	}
-	return text[index-1] == '\n'
+	marker := text[start]
+	if marker != '`' && marker != '~' {
+		return 0, false
+	}
+	length := 0
+	for start+length < len(text) && text[start+length] == marker {
+		length++
+	}
+	if length < 3 {
+		return 0, false
+	}
+	return length + (start - index), true
 }
 
 // usageText renders a receipt as one line. A frontend with room shows more; this is what a row carries.

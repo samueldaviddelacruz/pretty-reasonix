@@ -246,3 +246,86 @@ func TestRowsAreACopy(t *testing.T) {
 
 // errNoFile is the failure the tool-error case needs, named so the assertion can match it.
 var errNoFile = errors.New("nope.txt: no such file or directory")
+
+// TestTheEngineRealIDsDoNotDuplicateTheAnswer is the regression review found, and the reason the earlier version of this
+// file passed while the real thing printed every answer twice.
+//
+// The engine streams deltas under one item id and commits under another (internal/agent/round.go), so a reducer keyed on
+// the engine's ids appends a second row and never corrects the first. These are the ids the engine actually emits.
+func TestTheEngineRealIDsDoNotDuplicateTheAnswer(t *testing.T) {
+	t.Parallel()
+	rows := applyAll(
+		event.TurnStarted{TurnID: "turn-0001", Input: "q"},
+		event.TextDelta{TurnID: "turn-0001", ItemID: "item-0001", Text: "a partial "},
+		event.TextDelta{TurnID: "turn-0001", ItemID: "item-0001", Text: "answer"},
+		// The commit names the assistant item differently, which is the whole trap.
+		event.MessageCommitted{TurnID: "turn-0001", ItemID: "turn-0001/assistant", Message: provider.Message{
+			Role: provider.RoleAssistant, Content: "the whole answer",
+		}},
+	)
+	var says []Row
+	for _, row := range rows {
+		if row.Kind == RowSay {
+			says = append(says, row)
+		}
+	}
+	if len(says) != 1 {
+		t.Fatalf("%d answer rows, want one - the commit duplicated the streamed row", len(says))
+	}
+	if says[0].Text != "the whole answer" {
+		t.Errorf("the commit did not correct the row: %q", says[0].Text)
+	}
+}
+
+// TestReasoningAndAnswerAreSeparateRows: the engine gives a whole round one item id, so a reducer keyed on it merges them
+// and the merged row is foldable, which would fold the answer away with the thinking.
+func TestReasoningAndAnswerAreSeparateRows(t *testing.T) {
+	t.Parallel()
+	rows := applyAll(
+		event.ReasoningDelta{TurnID: "t1", ItemID: "item-0001", Text: "thinking"},
+		event.TextDelta{TurnID: "t1", ItemID: "item-0001", Text: "the answer"},
+	)
+	if len(rows) != 2 {
+		t.Fatalf("%d rows, want reasoning and answer separately: %+v", len(rows), rows)
+	}
+	if rows[0].Text != "thinking" || !rows[0].Foldable {
+		t.Errorf("the reasoning row is %+v", rows[0])
+	}
+	if rows[1].Text != "the answer" || rows[1].Foldable {
+		t.Errorf("the answer row is %+v; it must not be folded away with the reasoning", rows[1])
+	}
+}
+
+// TestATildeFenceAndCRLFDoNotSettleInsideABlock: markdown allows ~~~ as a fence, and a CRLF answer contains no blank
+// line the naive test would find - both would put the boundary somewhere the rule exists to keep it out of.
+func TestATildeFenceAndCRLFDoNotSettleInsideABlock(t *testing.T) {
+	t.Parallel()
+	tilde := "intro\n\n~~~\nfirst\n\nsecond\n~~~\n"
+	settled, _ := settledPrefix(tilde)
+	if settled != "intro\n\n" {
+		t.Errorf("a tilde fence was not recognised: settled = %q", settled)
+	}
+
+	// A CRLF answer, normalised on the way in - a carriage return in a rendered row really does overwrite the line.
+	crlf := normalise("intro\r\n\r\nstill arriving\r\n")
+	settled, live := settledPrefix(crlf)
+	if settled != "intro\n\n" || live == "" {
+		t.Errorf("a CRLF answer did not settle at its blank line: settled=%q live=%q", settled, live)
+	}
+}
+
+// TestAStreamedAnswerSettlesAndLeavesTheRestLive is the criterion's caller: a row is settled only up to the last blank
+// line outside a fence, which is what lets inline mode print the settled part to the scrollback.
+func TestAStreamedAnswerSettlesAndLeavesTheRestLive(t *testing.T) {
+	t.Parallel()
+	reducer := NewReducer()
+	reducer.Apply(event.TextDelta{TurnID: "t1", ItemID: "i", Text: "done.\n\nstill going"})
+
+	row := reducer.Rows()[0]
+	if row.Settled {
+		t.Error("an answer with a live tail is not settled")
+	}
+	if row.Live != "still going" {
+		t.Errorf("the live part is %q", row.Live)
+	}
+}
