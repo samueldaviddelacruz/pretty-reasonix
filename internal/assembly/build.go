@@ -35,6 +35,12 @@ type Options struct {
 	Preset string
 	// Sink receives the turn's events. Required: a run with nowhere to report is a run with no frontend.
 	Sink event.Sink
+	// Continue resumes the most recently written session, or starts a fresh one when there is nothing to resume.
+	Continue bool
+	// Resume names a session by id, by path, or by a substring of its title or preview.
+	Resume string
+	// Copy starts from a copy of the resumed session, leaving the original untouched.
+	Copy bool
 	// Now is the clock a new session is named from. Required rather than defaulted: a function that reads the clock
 	// cannot be tested, and the caller is the only place that knows what time it is.
 	Now time.Time
@@ -52,8 +58,12 @@ type Run struct {
 	Paths      config.Paths
 	Model      model.Model
 	Layout     session.Layout
-	Warnings   []config.Warning
-	Ignored    config.IgnoredProjectSettings
+	// Recovered reports what a resume had to set aside, so the frontend can say so.
+	Recovered session.Recovered
+	// Resumed is true when the run continued an existing session rather than starting one.
+	Resumed  bool
+	Warnings []config.Warning
+	Ignored  config.IgnoredProjectSettings
 }
 
 // Close finishes the session, reporting a failure to persist rather than swallowing it.
@@ -120,7 +130,11 @@ func Build(options Options) (*Run, error) {
 	if err != nil {
 		return nil, err
 	}
-	layout := session.NewLayout(paths.SessionsDir, id)
+	layout, resumed, recovered, err := openSession(paths, options, id)
+	if err != nil {
+		return nil, err
+	}
+
 	// Only the output directory exists this early: spilling needs somewhere to go, and a run that fails later must not
 	// leave an event log behind, because Newest orders by that file and --continue would resume a session that never
 	// said anything.
@@ -137,10 +151,10 @@ func Build(options Options) (*Run, error) {
 		return nil, toolErr
 	}
 
-	// Created here, last: everything that can fail has failed by now.
-	transcript, err := session.NewPersistent(layout)
-	if err != nil {
-		return nil, err
+	// Opened here, last: everything that can fail has failed by now.
+	transcript, openErr := openTranscript(layout, resumed)
+	if openErr != nil {
+		return nil, openErr
 	}
 
 	controller, err := agent.NewController(agent.Deps{
@@ -175,6 +189,8 @@ func Build(options Options) (*Run, error) {
 		Paths:      paths,
 		Model:      resolved,
 		Layout:     layout,
+		Recovered:  recovered,
+		Resumed:    resumed,
 		Warnings:   loaded.Warnings,
 		Ignored:    loaded.Ignored,
 	}, nil
@@ -227,4 +243,62 @@ func resolveEffort(cfg *config.Config, resolved model.Model, flag string) (provi
 		return model.EffortFor(requested, override.SupportedEfforts, override.DefaultEffort)
 	}
 	return provider.EffortUnset, nil
+}
+
+// openSession decides which session this run belongs to.
+//
+// Three ways in and one way out. A resume names a session, a continue takes the newest, and anything else starts a
+// fresh one — and a continue with nothing to continue is deliberately *not* an error: a first run is the common case,
+// and refusing it would make `--continue` unusable in a script that also runs for the first time. The caller reports
+// that it started fresh, which is the notice the criterion asks for.
+func openSession(paths config.Paths, options Options, id string) (session.Layout, bool, session.Recovered, error) {
+	fresh := session.NewLayout(paths.SessionsDir, id)
+
+	switch {
+	case options.Resume != "":
+		resolved, err := session.Resolve(paths.SessionsDir, options.Resume, options.Now)
+		if err != nil {
+			return session.Layout{}, false, session.Recovered{}, err
+		}
+		if options.Copy {
+			copied, copyErr := session.Copy(resolved, id, options.Now)
+			// Resumed, because the copy *is* the session this run continues: its messages have to be loaded, and
+			// NewPersistent would refuse the file Copy has just written.
+			return copied, true, session.Recovered{}, copyErr
+		}
+		recovered, err := session.Recover(resolved)
+		return resolved, true, recovered, err
+
+	case options.Continue:
+		newest, found, err := session.Newest(paths.SessionsDir)
+		if err != nil {
+			return session.Layout{}, false, session.Recovered{}, err
+		}
+		if !found {
+			return fresh, false, session.Recovered{}, nil
+		}
+		if options.Copy {
+			copied, copyErr := session.Copy(newest, id, options.Now)
+			return copied, true, session.Recovered{}, copyErr
+		}
+		recovered, err := session.Recover(newest)
+		return newest, true, recovered, err
+
+	default:
+		if options.Copy {
+			// A copy of nothing is nothing: reported rather than silently starting fresh, because the person asked for
+			// something specific and got something else.
+			return session.Layout{}, false, session.Recovered{}, errors.New("--copy needs --resume or --continue")
+		}
+		return fresh, false, session.Recovered{}, nil
+	}
+}
+
+// openTranscript opens a session for appending, existing or new.
+func openTranscript(layout session.Layout, resumed bool) (*session.Transcript, error) {
+	if resumed {
+		transcript, _, err := session.LoadPersistent(layout)
+		return transcript, err
+	}
+	return session.NewPersistent(layout)
 }
