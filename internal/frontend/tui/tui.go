@@ -8,6 +8,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"pretty-reasonix/internal/contract/event"
 )
 
 var (
@@ -36,6 +38,10 @@ type Options struct {
 	// only way to see it move is to sleep — and rules [#86]/[#87] exist so that a frontend never forces a test to.
 	Now func() time.Time
 
+	// Sink is the engine's event channel. When it is set, the program drains it and folds what arrives into one update
+	// per burst; when it is nil the program draws its skeleton and nothing else.
+	Sink *event.ChannelSink
+
 	// Width and Height are the starting size. Zero leaves the size unknown until the terminal reports one, which a
 	// real terminal always does and a buffer never will — so a headless test sees 0x0 forever, and that is expected.
 	Width, Height int
@@ -55,8 +61,10 @@ func Run(ctx context.Context, options Options) error {
 		return ErrNoTerminal
 	}
 
+	state := newModel(options)
+
 	program := tea.NewProgram(
-		newModel(options),
+		state,
 		tea.WithContext(ctx),
 		tea.WithInput(options.In),
 		tea.WithOutput(options.Out),
@@ -64,6 +72,14 @@ func Run(ctx context.Context, options Options) error {
 		// terminal the program has.
 		tea.WithWindowSize(options.Width, options.Height),
 	)
+
+	// The pump runs for as long as the program does. It is started before Run so that no event is missed between the
+	// screen appearing and the first read, and stopped by cancelling its context on the way out.
+	if options.Sink != nil {
+		pumpCtx, stopPump := context.WithCancel(ctx)
+		defer stopPump()
+		go newPump(options.Sink, program.Send).run(pumpCtx)
+	}
 
 	if _, err := program.Run(); err != nil {
 		// A cancelled context is how the caller stops the program rather than a failure of it: the CLI maps its own
@@ -96,6 +112,8 @@ type model struct {
 	// accumulated timer drifts and, worse, cannot be advanced by a test.
 	started time.Time
 	frames  int
+	events  int
+	dropped int64
 }
 
 // newModel builds the initial state.
@@ -128,6 +146,10 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = typed.Width, typed.Height
 	case frameMsg:
 		m.frames++
+	case batchMsg:
+		// One render for the whole burst, which is the point of the batch existing.
+		m.events += len(typed.Events)
+		m.dropped += typed.Dropped
 	}
 	return m, nil
 }
@@ -140,8 +162,10 @@ func (m *model) View() tea.View {
 		mode = "inline"
 	}
 	elapsed := m.now().Sub(m.started).Round(time.Second)
-	view := tea.NewView(fmt.Sprintf("pretty-reasonix · %s · %dx%d · %s · %d frame(s)\n",
-		mode, m.width, m.height, elapsed, m.frames))
+	// Dropped is shown next to the count rather than instead of it: a renderer that said only "3 lost" would leave a
+	// reader unable to tell whether anything arrived at all.
+	view := tea.NewView(fmt.Sprintf("pretty-reasonix · %s · %dx%d · %s · %d frame(s) · %d event(s) · %d dropped\n",
+		mode, m.width, m.height, elapsed, m.frames, m.events, m.dropped))
 	// Alt screen is per-View, so this is where the modes actually differ: fullscreen takes the terminal over, inline
 	// leaves the person's scrollback where it was.
 	view.AltScreen = !m.inline
