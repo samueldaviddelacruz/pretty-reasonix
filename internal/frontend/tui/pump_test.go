@@ -48,13 +48,14 @@ func next(t *testing.T, batches <-chan batchMsg) batchMsg {
 func TestABurstCostsOneRender(t *testing.T) {
 	t.Parallel()
 	sink := event.NewChannelSink()
-	batches, stop := collectInto(t, sink)
-	defer stop()
-
-	// Queued before the pump can plausibly be scheduled, and buffered, so they are all waiting when it reads.
+	// Queued *before* the pump starts, or the assertion races it: a pump already reading can take the first event on its
+	// own, and the "burst" is then two. This test failed intermittently for exactly that reason.
 	sink.Emit(event.TurnStarted{TurnID: "t1"})
 	sink.Emit(event.TextDelta{TurnID: "t1", ItemID: "i", Text: "a"})
 	sink.Emit(event.TextDelta{TurnID: "t1", ItemID: "i", Text: "b"})
+
+	batches, stop := collectInto(t, sink)
+	defer stop()
 
 	batch := next(t, batches)
 	if len(batch.Events) != 3 {

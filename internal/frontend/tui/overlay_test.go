@@ -4,24 +4,26 @@
 package tui
 
 import (
-	"slices"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 // modal is an overlay a test configures.
 type modal struct {
-	id       string
-	keys     []string
-	composer bool
+	name      string
+	ownership KeyOwnership
+	composer  bool
 }
 
-func (m modal) ID() string { return m.id }
+func (m modal) Title() string { return m.name }
 
-func (m modal) OwnsKeys(key string) bool { return slices.Contains(m.keys, key) }
+func (m modal) OwnsKeys() KeyOwnership          { return m.ownership }
+func (m modal) ComposerVisible() bool           { return m.composer }
+func (modal) Update(tea.Msg) (Overlay, tea.Cmd) { return nil, nil }
+func (modal) View(int) string                   { return "" }
 
-func (m modal) ComposerVisible() bool { return m.composer }
-
-// TestNoOverlayLeavesTheComposerVisible: the ordinary case, stated so the rule has a baseline to differ from.
+// TestNoOverlayLeavesTheComposerVisible is the baseline the rest differ from.
 func TestNoOverlayLeavesTheComposerVisible(t *testing.T) {
 	t.Parallel()
 	stack := &Stack{}
@@ -29,87 +31,109 @@ func TestNoOverlayLeavesTheComposerVisible(t *testing.T) {
 	if !stack.ComposerVisible() {
 		t.Error("no overlay hid the composer")
 	}
-	if stack.Handles("enter") {
-		t.Error("an empty stack claimed a key")
+	if stack.Swallows() {
+		t.Error("an empty stack claimed the keyboard")
 	}
-	if got := stack.BottomHeight(3); got != 3 {
-		t.Errorf("the bottom region is %d rows, want the composer's 3", got)
+	// The status line is counted even with nothing open: it is always drawn.
+	if got := stack.BottomHeight(3, 1); got != 4 {
+		t.Errorf("the bottom region is %d rows, want composer 3 + status 1", got)
 	}
 }
 
-// TestAModalWithoutTheComposerReservesNoRoom is the criterion's second clause: an inactive composer cannot render under a
-// modal, because the layout is never told to leave room for it.
-func TestAModalWithoutTheComposerReservesNoRoom(t *testing.T) {
+// TestAModalHidesTheComposerAndKeepsTheStatus is the criterion's second clause, and the status line is the half the first
+// version got wrong: it returned the composer alone while the status was still drawn, so a layout reserving that height
+// overdrew the transcript.
+func TestAModalHidesTheComposerAndKeepsTheStatus(t *testing.T) {
 	t.Parallel()
 	stack := &Stack{}
-	stack.Push(modal{id: "decision", keys: []string{"y", "n"}, composer: false})
+	stack.Push(modal{name: "decision", ownership: Modal, composer: false})
 
 	if stack.ComposerVisible() {
-		t.Error("a modal that owns the screen left the composer visible")
+		t.Error("a modal left the composer visible")
 	}
-	if got := stack.BottomHeight(3); got != 0 {
-		t.Errorf("the bottom region reserves %d rows under a modal, want 0", got)
+	if !stack.Swallows() {
+		t.Error("a modal did not claim the keyboard")
+	}
+	if got := stack.BottomHeight(3, 1); got != 1 {
+		t.Errorf("the bottom region is %d rows under a modal, want the status line's 1", got)
 	}
 }
 
-// TestAModalMayKeepTheComposer, because a picker over a half-typed question should not throw the question away.
-func TestAModalMayKeepTheComposer(t *testing.T) {
+// TestAnInputOwnedOverlayKeepsTheComposer: a picker over a half-typed question must not throw the question away.
+func TestAnInputOwnedOverlayKeepsTheComposer(t *testing.T) {
 	t.Parallel()
 	stack := &Stack{}
-	stack.Push(modal{id: "picker", keys: []string{"up"}, composer: true})
+	stack.Push(modal{name: "picker", ownership: InputOwned, composer: true})
 
 	if !stack.ComposerVisible() {
-		t.Error("a modal that keeps the composer hid it")
+		t.Error("a picker hid the composer")
 	}
-	if got := stack.BottomHeight(4); got != 4 {
-		t.Errorf("the bottom region is %d rows, want the composer's 4", got)
+	if stack.Swallows() {
+		t.Error("a picker claimed the whole keyboard")
 	}
-}
-
-// TestOnlyTheTopOwnsAKey: a keystroke reaches the top overlay or nothing. It never reaches the overlay underneath, because
-// a modal exists to stop what is below it from reacting.
-func TestOnlyTheTopOwnsAKey(t *testing.T) {
-	t.Parallel()
-	stack := &Stack{}
-	stack.Push(modal{id: "below", keys: []string{"y"}, composer: true})
-	stack.Push(modal{id: "above", keys: []string{"n"}, composer: true})
-
-	if stack.Handles("y") {
-		t.Error("a key reached the overlay below the top")
-	}
-	if !stack.Handles("n") {
-		t.Error("the top overlay did not claim its own key")
-	}
-	// A key nobody claims falls through, which is what lets Escape reach a global handler.
-	if stack.Handles("escape") {
-		t.Error("an unclaimed key was claimed")
+	if got := stack.BottomHeight(4, 1); got != 5 {
+		t.Errorf("the bottom region is %d rows, want 5", got)
 	}
 }
 
-// TestAPopRevealsWhatWasUnderneath, since a nested modal returning must restore the rules of the one below it.
-func TestAPopRevealsWhatWasUnderneath(t *testing.T) {
+// TestANestedOverlayCannotResurrectTheComposer is the review's fourth finding: top-wins visibility let a picker that keeps
+// the composer bring back an input box the decision card below had deliberately removed.
+func TestANestedOverlayCannotResurrectTheComposer(t *testing.T) {
 	t.Parallel()
 	stack := &Stack{}
-	stack.Push(modal{id: "decision", keys: []string{"y"}, composer: false})
-	stack.Push(modal{id: "picker", keys: []string{"up"}, composer: true})
+	stack.Push(modal{name: "decision", ownership: Modal, composer: false})
+	stack.Push(modal{name: "picker", ownership: InputOwned, composer: true})
 
-	if !stack.ComposerVisible() {
-		t.Fatal("the picker declares the composer visible, so it should be; the setup is what makes the pop meaningful")
+	if stack.ComposerVisible() {
+		t.Error("a picker resurrected the composer a modal had hidden")
 	}
+	if got := stack.BottomHeight(3, 1); got != 1 {
+		t.Errorf("the bottom region is %d rows, want the status line only", got)
+	}
+}
 
+// TestTheTopIsWhatAKeyReaches, and the keyboard still belongs to an overlay when a hidden composer leaves nowhere else for
+// it to go.
+//
+// This test used to assert the opposite — that a non-modal top meant "not swallowed" — and that assertion was the bug: the
+// modal underneath had already hidden the composer, so keys routed "to the composer" were delivered to an input box nobody
+// could see. The top is still what a keystroke reaches; it is no longer what decides whether the composer gets it.
+func TestTheTopIsWhatAKeyReaches(t *testing.T) {
+	t.Parallel()
+	stack := &Stack{}
+	stack.Push(modal{name: "below", ownership: Modal, composer: false})
+	stack.Push(modal{name: "above", ownership: InputOwned, composer: true})
+
+	if stack.Top().Title() != "above" {
+		t.Errorf("the top is %q", stack.Top().Title())
+	}
+	if !stack.Swallows() {
+		t.Error("keys would be routed to the composer the modal below has hidden")
+	}
+}
+
+// TestAPopRevealsTheRulesBelow, since closing a picker must restore the card's ownership.
+func TestAPopRevealsTheRulesBelow(t *testing.T) {
+	t.Parallel()
+	stack := &Stack{}
+	stack.Push(modal{name: "decision", ownership: Modal, composer: false})
+	stack.Push(modal{name: "picker", ownership: InputOwned, composer: true})
+
+	// Before the pop the picker is on top but the card has hidden the composer, so keys are already swallowed; what the
+	// pop changes is which overlay's declaration governs next.
 	stack.Pop()
-	if stack.Depth() != 1 {
-		t.Fatalf("depth is %d after popping one", stack.Depth())
+	if stack.Depth() != 1 || stack.Top().Title() != "decision" {
+		t.Fatalf("after popping, %d overlays with %q on top", stack.Depth(), stack.Top().Title())
+	}
+	if !stack.Swallows() {
+		t.Error("the decision card did not resume owning the keyboard")
 	}
 	if stack.ComposerVisible() {
-		t.Error("popping to the decision card left the composer visible")
-	}
-	if stack.Top().ID() != "decision" {
-		t.Errorf("the top is %q", stack.Top().ID())
+		t.Error("the composer came back with the decision card in front")
 	}
 }
 
-// TestPoppingAnEmptyStackIsHarmless, so a handler does not have to check before closing something.
+// TestPoppingAnEmptyStackIsHarmless, so a handler need not check before closing something.
 func TestPoppingAnEmptyStackIsHarmless(t *testing.T) {
 	t.Parallel()
 	stack := &Stack{}
@@ -121,12 +145,95 @@ func TestPoppingAnEmptyStackIsHarmless(t *testing.T) {
 	}
 }
 
-// TestANegativeComposerHeightIsNotReserved: a caller with nothing to draw must not produce negative room for the
-// transcript.
-func TestANegativeComposerHeightIsNotReserved(t *testing.T) {
+// TestANilOverlayIsRefused: a stored nil would give Top a non-nil interface holding nothing, and the first method call
+// on it would panic.
+func TestANilOverlayIsRefused(t *testing.T) {
 	t.Parallel()
 	stack := &Stack{}
-	if got := stack.BottomHeight(-2); got != 0 {
+	stack.Push(nil)
+
+	if stack.Depth() != 0 || stack.Top() != nil {
+		t.Error("a nil overlay was stored")
+	}
+	if stack.Swallows() {
+		t.Error("a nil overlay claimed the keyboard")
+	}
+}
+
+// TestTheBaseDefaultsAreTheHarmlessOnes, which is what lets a toast embed it and answer nothing.
+func TestTheBaseDefaultsAreTheHarmlessOnes(t *testing.T) {
+	t.Parallel()
+	base := Base{Name: "toast"}
+
+	if base.Title() != "toast" {
+		t.Errorf("the title is %q", base.Title())
+	}
+	if !base.ComposerVisible() {
+		t.Error("a bare overlay hid the composer")
+	}
+	if base.OwnsKeys() != InputOwned {
+		t.Error("a bare overlay claimed the keyboard")
+	}
+}
+
+// TestNegativeHeightsAreNotReserved: a caller with nothing to draw must not produce negative room for the transcript.
+func TestNegativeHeightsAreNotReserved(t *testing.T) {
+	t.Parallel()
+	stack := &Stack{}
+	if got := stack.BottomHeight(-2, 1); got != 1 {
 		t.Errorf("a negative composer height reserved %d rows", got)
+	}
+	if got := stack.BottomHeight(2, -1); got != 2 {
+		t.Errorf("a negative status height reserved %d rows", got)
+	}
+}
+
+// keyboardOnly is a modal that declares nothing but its ownership, which is the shape a real card will have.
+type keyboardOnly struct{ Base }
+
+func (keyboardOnly) OwnsKeys() KeyOwnership            { return Modal }
+func (keyboardOnly) Update(tea.Msg) (Overlay, tea.Cmd) { return nil, nil }
+func (keyboardOnly) View(int) string                   { return "" }
+
+// TestAModalEmbeddingBaseStillHidesTheComposer is Gemini's first finding, and it is the U2 bug itself: the defaults say the
+// composer is visible, so a modal that overrode only OwnsKeys claimed the keyboard and left an input box on screen.
+func TestAModalEmbeddingBaseStillHidesTheComposer(t *testing.T) {
+	t.Parallel()
+	stack := &Stack{}
+	stack.Push(keyboardOnly{Base{Name: "card"}})
+
+	if stack.ComposerVisible() {
+		t.Fatal("a modal embedding the defaults left the composer visible")
+	}
+	if !stack.Swallows() {
+		t.Fatal("the modal did not claim the keyboard")
+	}
+	if got := stack.BottomHeight(3, 1); got != 1 {
+		t.Errorf("the bottom region is %d rows, want the status line only", got)
+	}
+}
+
+// TestAHiddenComposerSwallowsKeys is Gemini's second finding: a picker over a decision card is not itself modal, so the
+// stack reported "not swallowed" while the composer was hidden, and every keystroke went to an input box nobody could see.
+func TestAHiddenComposerSwallowsKeys(t *testing.T) {
+	t.Parallel()
+	stack := &Stack{}
+	stack.Push(modal{name: "decision", ownership: Modal, composer: false})
+	stack.Push(modal{name: "picker", ownership: InputOwned, composer: true})
+
+	if stack.Top().OwnsKeys() == Modal {
+		t.Fatal("the picker is meant to be input-owned here; the point is that the stack still swallows")
+	}
+	if !stack.Swallows() {
+		t.Error("keys would be routed to a hidden composer")
+	}
+}
+
+// TestAnInvalidOwnershipDoesNotPanicWhileReporting, which is Gemini's third finding: a panic inside String would fire while
+// something was already reporting a failure.
+func TestAnInvalidOwnershipDoesNotPanicWhileReporting(t *testing.T) {
+	t.Parallel()
+	if got := KeyOwnership(-7).String(); got != "keyownership(-7)" {
+		t.Errorf("an invalid ownership formats as %q", got)
 	}
 }
