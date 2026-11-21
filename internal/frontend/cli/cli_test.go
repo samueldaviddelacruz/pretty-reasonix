@@ -88,3 +88,20 @@ type failingWriter struct{}
 func (failingWriter) Write([]byte) (int, error) {
 	return 0, errors.New("the terminal is gone")
 }
+
+// TestABareInvocationWithoutATerminalStillPrintsUsage is E10-T9's second clause, and the one a headless test can assert:
+// escape sequences written into a pipe produce a file nobody can read, so the usage text stays.
+func TestABareInvocationWithoutATerminalStillPrintsUsage(t *testing.T) {
+	t.Parallel()
+	var stdout, stderr bytes.Buffer
+	if code := cli.Run(nil, &stdout, &stderr); code != 0 {
+		t.Errorf("a bare invocation exited %d, want 0", code)
+	}
+	if !strings.Contains(stdout.String(), "Usage:") {
+		t.Errorf("a bare invocation on a buffer printed %q, want usage", stdout.String())
+	}
+	// The line that has promised a session since E1 is still there, and now describes something that exists.
+	if !strings.Contains(stdout.String(), "start an interactive session") {
+		t.Error("the usage text no longer mentions the interactive session")
+	}
+}

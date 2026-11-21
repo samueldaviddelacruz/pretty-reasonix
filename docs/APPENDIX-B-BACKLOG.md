@@ -351,6 +351,9 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
 
 **Goal:** a terminal app that stays responsive while a model streams and never prints something it might want to retract.
 
+- **E10-T9 · A bare `prx` opens the session** — `size:S` · deps: `E10-T1` · labels: `type:feature`, `area:cli`, `milestone:m2`
+  - The usage text has said "start an interactive session" since E1 while printing the text itself, and E19-T1's criterion only describes the *no-TTY* half — so the TTY half was nobody's ticket.
+  - AC: with a terminal on stdout, a bare invocation starts the program and Ctrl-C leaves a restored terminal with exit `0`; with anything else — a pipe, a file, CI — it prints usage and exits `0` as before, because escape sequences written to a file produce a file nobody can read.
 - **E10-T1 · Program skeleton, options and terminal setup/restore** — `size:M` · deps: `E4-T2` · labels: `type:feature`, `area:tui`, `milestone:m2`
   - AC: `Run(ctx, Options)` builds the program with inline/fullscreen modes; the terminal is restored on exit, on panic and on interrupt (a test drives setup/restore with a fake terminal).
   - AC: every timer (spinner, flash, edge scroll, status poll) reads the injected clock, so a test advances the fake and drives the timer without sleeping (rules [#86], [#87]).

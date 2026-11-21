@@ -12,13 +12,17 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
-
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"pretty-reasonix/internal/config"
 	"pretty-reasonix/internal/frontend/run"
+	"pretty-reasonix/internal/frontend/tui"
 	"pretty-reasonix/internal/version"
 )
 
@@ -57,7 +61,7 @@ func binaryVersion() string {
 // Run executes the command line and returns the process exit code.
 func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		return emit(stdout, append([]string{binaryVersion()}, usageLines...), exitOK)
+		return startSession(stdout, stderr)
 	}
 
 	// The headless frontend writes as it goes, so it cannot go through the buffered path below: an answer
@@ -101,4 +105,41 @@ func writeLines(w io.Writer, lines []string) error {
 		}
 	}
 	return nil
+}
+
+// startSession opens the terminal program when there is a terminal to open it on.
+//
+// The usage text has promised "start an interactive session" since the first ticket, and until now it printed the
+// promise instead. The condition is deliberate: a program that draws escape sequences into a pipe has produced a file
+// nobody can read, so anything that is not a character device gets the usage text it always got.
+func startSession(stdout, stderr io.Writer) int {
+	file, isFile := stdout.(*os.File)
+	if !isFile || !isTerminal(file) {
+		return emit(stdout, append([]string{binaryVersion()}, usageLines...), exitOK)
+	}
+
+	// Ctrl-C is the program's own business once it owns the terminal: Bubble Tea installs the handler, quits cleanly,
+	// and restores. The context is the other way out — a caller that cancels gets the same tidy finish.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	err := tui.Run(ctx, tui.Options{
+		In:  os.Stdin,
+		Out: stdout,
+		// The process boundary is where the wall clock is read; everything below takes one.
+		Now: time.Now, //nolint:forbidigo // the CLI is the boundary that reads the wall clock
+	})
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "%s: %v\n", config.BinaryName, err)
+		return exitFailure
+	}
+	return exitOK
+}
+
+// isTerminal reports whether a file is a character device, which is the standard library's only portable hint that
+// something is a terminal. It is not a guarantee — /dev/null is a character device too — but the program that follows
+// makes its own decision, and the cost of being wrong in that direction is a program that exits immediately.
+func isTerminal(file *os.File) bool {
+	info, err := file.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
