@@ -39,6 +39,9 @@ type Options struct {
 	// only way to see it move is to sleep — and rules [#86]/[#87] exist so that a frontend never forces a test to.
 	Now func() time.Time
 
+	// FrameInterval is how often a running turn asks for a redraw. Zero means DefaultFrameInterval.
+	FrameInterval time.Duration
+
 	// Send is what a submitted message goes to. Nil is a program that records what was typed and does nothing with it,
 	// which is what makes the input path testable without a controller behind it.
 	//
@@ -140,6 +143,13 @@ type model struct {
 	send func(string) error
 	// lastSent is what was last submitted, so a test can assert that Enter did something without a controller.
 	lastSent string
+	// animating is true while a turn is running: the screen has something to show that changes without an event, and a
+	// static screen looks like a hung one.
+	animating bool
+	// interval is how often a frame is requested while animating.
+	interval time.Duration
+	// ticking is true while a frame is in flight, so two turns cannot arm two chains that re-arm each other.
+	ticking bool
 	// sendErr is why the last send was refused, if it was. Shown in the status line, because the program owns the
 	// terminal and there is nowhere else for it to go.
 	sendErr string
@@ -160,6 +170,7 @@ func newModel(options Options) *model {
 		composer: NewComposer(CursorBar),
 		stack:    &Stack{},
 		send:     options.Send,
+		interval: frameInterval(options.FrameInterval),
 	}
 }
 
@@ -209,16 +220,32 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = typed.Width, typed.Height
 	case frameMsg:
 		m.frames++
+		m.ticking = false
+		// Re-armed from here rather than from the command, so the chain stops the moment a turn ends: a frame arrives, the
+		// model decides whether there is another.
+		return m, m.frame()
 	case batchMsg:
 		// One render for the whole burst, which is the point of the batch existing. The events are folded here rather
 		// than in the view: the model owns the transcript, and a view that mutated it would make every redraw a
 		// potential state change.
 		for _, e := range typed.Events {
+			// Animation state is read here, from the events as they actually arrive: every burst from the pump is wrapped,
+			// so a case on a raw TurnStarted never fires and the spinner never starts. A start and a finish in one batch
+			// leaves the program idle, which is why this is a loop over the burst rather than a case outside it.
+			switch e.(type) {
+			case event.TurnStarted:
+				m.animating = true
+			case event.TurnDone:
+				m.animating = false
+			}
 			m.reducer.Apply(e)
 		}
 		m.events += len(typed.Events)
 		// Stored, not added: the pump reports a total, and accumulating it would square the loss.
 		m.lost = typed.Lost
+		if m.animating {
+			return m, m.frame()
+		}
 	}
 	// Derived once, at the end of every update. The bottom region depends on the composer's height and on whether an
 	// overlay has taken the screen, and syncing it at each site that changes either was wrong twice: a modal opening and
@@ -261,8 +288,12 @@ func (m *model) View() tea.View {
 			fmt.Fprintf(&body, "> %s\n", line)
 		}
 	}
-	status := fmt.Sprintf("pretty-reasonix · %s · %dx%d · %s · %d frame(s) · %d event(s) · %d lost · %s · cursor:%s",
-		mode, m.width, m.height, elapsed, m.frames, m.events, m.lost, followingLabel(m.viewport), m.composer.Shape())
+	prefix := "pretty-reasonix"
+	if m.animating {
+		prefix = m.spinner() + " pretty-reasonix"
+	}
+	status := fmt.Sprintf("%s · %s · %dx%d · %s · %d frame(s) · %d event(s) · %d lost · %s · cursor:%s",
+		prefix, mode, m.width, m.height, elapsed, m.frames, m.events, m.lost, followingLabel(m.viewport), m.composer.Shape())
 	if m.sendErr != "" {
 		status += " · " + m.sendErr
 	}
@@ -315,4 +346,49 @@ func (m *model) submit() {
 func (m *model) syncViewport() {
 	bottom := m.stack.BottomHeight(m.composer.Height(), 1)
 	m.viewport.SetHeight(max(m.height-bottom, 0))
+}
+
+// DefaultFrameInterval is how often a running turn asks for a redraw.
+//
+// Ten a second: fast enough that a spinner reads as motion, slow enough that a redraw costs nothing against the render
+// budget. Deliberately not tied to the model's speed — a frame is asked for on a timer rather than per token, so a slow
+// vendor still looks alive and a fast one does not redraw per character.
+const DefaultFrameInterval = 100 * time.Millisecond
+
+// frameInterval resolves the option, so a caller can leave it unset.
+func frameInterval(interval time.Duration) time.Duration {
+	if interval > 0 {
+		return interval
+	}
+	return DefaultFrameInterval
+}
+
+// frame asks for the next redraw.
+//
+// tea.Tick is the only timer here, and it is a *scheduling* timer rather than a clock reading: what the frame shows is
+// derived from the injected clock, so a test advances that clock and sends one frameMsg instead of waiting for this. The
+// interval is an option for the same reason — a test that had to wait for the real one would be a test that sleeps.
+//
+// It returns nil when nothing is running, which is what stops the chain: a ticker with no turn behind it would redraw an
+// unchanging screen ten times a second forever.
+func (m *model) frame() tea.Cmd {
+	if !m.animating || m.ticking {
+		return nil
+	}
+	m.ticking = true
+	return tea.Tick(m.interval, func(time.Time) tea.Msg { return frameMsg{} })
+}
+
+// spinner is the frame's animation: one of four cells chosen by the injected clock.
+//
+// Chosen from clock reading rather than a counter that increments per frame, because a counter's speed depends on how
+// often the ticker fires — so the same turn would spin at different rates on a loaded machine and a test could not predict
+// it. Elapsed time is the same number however the frames fall.
+func (m *model) spinner() string {
+	cells := []string{"⠋", "⠙", "⠹", "⠸"}
+	// Clamped and normalised: a clock that reads before the start, or an interval of zero on a model not built by newModel,
+	// would panic here — and this runs inside View, which is the worst place to panic while a terminal is in raw mode.
+	interval := frameInterval(m.interval)
+	elapsed := max(m.now().Sub(m.started), 0)
+	return cells[int(elapsed/interval)%len(cells)]
 }
