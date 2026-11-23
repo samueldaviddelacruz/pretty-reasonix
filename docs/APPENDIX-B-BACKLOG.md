@@ -2,7 +2,7 @@
 
 Companion to [`TECHNICAL_DESIGN.md`](./TECHNICAL_DESIGN.md). This is the **file the GitHub project board is populated from**: one ticket per bullet, one epic per section, one milestone per group.
 
-**161 v1 tickets across 22 epics and 6 milestones**, plus a roadmap tier (§R1) that records every deferred subsystem with a stub ticket, so deferral is explicit rather than forgotten.
+**184 v1 tickets across 22 epics and 6 milestones**, plus a roadmap tier (§R1) that records every deferred subsystem with a stub ticket, so deferral is explicit rather than forgotten.
 
 ---
 
@@ -19,7 +19,7 @@ Companion to [`TECHNICAL_DESIGN.md`](./TECHNICAL_DESIGN.md). This is the **file 
 | `epic:e<n>` | `epic:e1` … `epic:e22` |
 | `milestone:m<n>` | `milestone:m0` … `milestone:m5` |
 | `area:<x>` | `area:core` `area:config` `area:provider` `area:agent` `area:tools` `area:perm` `area:sandbox` `area:context` `area:state` `area:tui` `area:render` `area:theme` `area:cli` `area:ext` `area:quality` `area:docs` `area:release` |
-| `type:<x>` | `type:feature` `type:chore` `type:spike` `type:docs` `type:test` |
+| `type:<x>` | `type:feature` `type:fix` `type:chore` `type:spike` `type:docs` `type:test` |
 | `size:<x>` | `size:S` (≤ half a day) `size:M` (1–3 days) `size:L` (3+ days, should probably be split) |
 | `risk:<x>` | `risk:security` `risk:perf` `risk:compat` `risk:data-loss` |
 | `good-first-issue` | Applied to the E1/E2/E13-T4/E20 set — self-contained, low blast radius |
@@ -61,24 +61,24 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
 | E1 | Project foundation, conventions and CI | M0 | 8 | — |
 | E2 | Configuration, paths and identity | M0 | 7 | E1 |
 | E3 | Provider layer: registry, wire kinds, streaming | M0 | 10 | E1, E2 |
-| E4 | Turn loop, events and the controller | M0 | 9 | E1, E2, E3 |
+| E4 | Turn loop, events and the controller | M0 | 17 | E1, E2, E3 |
 | E5 | Tool framework and the local toolbelt | M0–M1 | 14 | E2, E4 |
 | E6 | Permission engine | M1 | 8 | E2, E5 |
 | E7 | Sandbox and workspace trust | M1 | 7 | E2, E6 |
 | E8 | Context management and compaction | M3 | 7 | E3, E4, E9 |
-| E9 | Sessions, storage and continuity | M0–M3 | 9 | E1, E2 |
-| E10 | TUI shell, transcript and rendering | M2 | 8 | E4, E9, E13-T4 |
+| E9 | Sessions, storage and continuity | M0–M3 | 14 | E1, E2 |
+| E10 | TUI shell, transcript and rendering | M2 | 13 | E4, E9, E13-T4 |
 | E11 | TUI interaction surfaces | M2 | 10 | E10, E12 |
 | E12 | Theming, keymap and i18n | M2 | 6 | E10 |
 | E13 | Code, diff and markdown rendering | M2 | 5 | E10 |
-| E14 | Headless `run`/`-p` and automation contract | M0–M1 | 7 | E4, E5, E6 |
+| E14 | Headless `run`/`-p` and automation contract | M0–M1 | 9 | E4, E5, E6 |
 | E15 | MCP client | M4 | 8 | E4, E5, E6 |
 | E16 | Skills and custom slash commands | M4 | 7 | E4, E5, E11-T10 |
 | E17 | Hooks | M4 | 5 | E4, E6 |
 | E18 | Instructions and `@`-references | M4 | 4 | E2, E4 |
 | E19 | CLI surface: routing, setup, doctor, completion | M5 | 6 | all M0–M4 |
-| E20 | Quality: test harness and end-to-end suite | M0–M5 | 8 | grows with every epic |
-| E21 | Documentation and onboarding | M5 | 4 | all |
+| E20 | Quality: test harness and end-to-end suite | M0–M5 | 10 | grows with every epic |
+| E21 | Documentation and onboarding | M5 | 5 | all |
 | E22 | Release and distribution | M5 | 4 | all |
 
 **Critical path:** E1 → E2 → E3 → E4 → E5 → E6 → E7 → E9 → E10 → E11 (the longest chain; every milestone on it is on the path to a usable TUI). E8 and E13 branch off E4/E9. E15–E18 branch off E5/E6 and can proceed in parallel with M2 once M1 closes.
@@ -205,6 +205,33 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
   - AC: a turn is a loop — a round, then whatever it asked for, then another round — until the model returns no calls, a decision barrier cuts the batch, the turn is cancelled, or the step budget expires; and each of those four endings reports its own `TurnStatus` rather than arriving as "done".
   - AC: the registry and the result boundary reach the controller through `Deps` and are supplied by `internal/assembly`, so a missing registry is a boot error rather than a turn that silently answers without using a tool.
   - AC: a scripted provider that returns a tool call and then a final answer produces one tool result and two rounds, and a mutant that drops the second round turns that test red.
+- **E4-T12 · Every round of a turn runs under the policy it began with** — `size:S` · deps: `E4-T3`, `E4-T11` · labels: `type:fix`, `area:agent`, `milestone:m0`
+  - Found in the 2026-11-23 review: `Controller.run` freezes the policy, but `Round` reads `c.Policy()` again on every round, so a `SetPolicy` during a turn changes the temperature, effort and output cap of the rounds that follow. The existing test only checked the policy block's text.
+  - AC: `Round` takes the frozen policy as an argument, and nothing inside a turn reads the controller's live policy.
+  - AC: a test changes the policy between round 1 and round 2 of a turn with a tool call, and asserts that both requests the scripted provider received carry the original temperature, effort and output cap.
+- **E4-T13 · One item id per round, shared by its deltas and its commit** — `size:M` · deps: `E4-T4`, `E10-T3` · labels: `type:fix`, `area:agent`, `area:tui`, `milestone:m2`
+  - Found in the 2026-11-23 review: deltas carry `item-000N` and the commit carries `<turn>/assistant`, so the reducer keys answer rows by turn. In a turn that calls a tool, round 2's text erases round 1's and renders above the tool row.
+  - AC: every `TextDelta`, `ReasoningDelta` and `MessageCommitted` of a round carries the same `ItemID`, and different rounds have different ids.
+  - AC: the reducer keys answer and reasoning rows by `ItemID`, and `answerKey`/`reasonKey` are removed.
+  - AC: a reducer test fed the event stream the controller really emits for a two-round turn (text, tool call, result, text) produces rows in the order say → tool → say, with both texts intact.
+- **E4-T14 · Announce tool calls when they are dispatched** — `size:M` · deps: `E4-T10`, `E10-T3` · labels: `type:feature`, `area:agent`, `milestone:m2`
+  - Found in the 2026-11-23 review: the reducer handles `ToolDispatched`, but nothing emits it, so a tool row first appears when its result lands and has no name or arguments.
+  - AC: the executor emits `ToolDispatched{TurnID, CallID, Name, Args, ReadOnly}` before each call starts, and `ToolResult` as each call finishes rather than after the whole batch.
+  - AC: a refusal that comes back as a result reaches the event as an error with its text, not as an empty output.
+  - AC: a controller test asserts that each call's dispatch comes before its result and that the two match by call id.
+- **E4-T15 · The built-in system prompt, and honouring `[agent] system_prompt`** — `size:M` · deps: `E4-T4`, `E2-T1` · labels: `type:feature`, `area:agent`, `milestone:m1`
+  - Found in the 2026-11-23 review: no request ever carries a `RoleSystem` message, and the `system_prompt`/`system_prompt_file` keys are parsed and read by nothing.
+  - AC: a built-in system prompt lives in one place (a constant or an embedded file) and covers role, workspace root, tool conventions and the host/model authority split (TDD §2).
+  - AC: `[agent] system_prompt` replaces it and `system_prompt_file` loads it from a file; setting both is a config error.
+  - AC: the prompt is the first message of every request and is byte-identical across the turns of a session; a test asserts that the prefixes of two consecutive requests are equal.
+- **E4-T16 · Decide what a per-turn model means** — `size:M` · deps: `E4-T2` · labels: `type:feature`, `area:agent`, `area:provider`, `milestone:m2`
+  - Found in the 2026-11-23 review: `TurnInput.Model` changes the output cap and the policy block, but `provider.Request` has no model field and the provider is built once, so the request still goes to the session's model.
+  - AC: the TDD records whether a session can switch model (and provider) between turns.
+  - AC: if it can, a turn naming model B reaches B's scripted provider (test); if it can't, `TurnInput.Model` is removed.
+- **E4-T17 · Host blocks go before the request, not after it** — `size:S` · deps: `E4-T3` · labels: `type:fix`, `area:agent`, `milestone:m1`
+  - Found in the 2026-11-23 review: the recovery record and the policy block are appended after the person's input, so the last thing the model reads is host bookkeeping.
+  - AC: host-authored blocks for a turn come before the person's input (or share its message, clearly marked), so the input is the final content of the request.
+  - AC: the order is written in TDD §6.5 and asserted by a controller test on the request the provider receives.
 
 ### E5 · Tool framework and the local toolbelt — M0–M1
 
@@ -346,6 +373,19 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
   - AC: a turn in flight records its start index, revision and digest plus its commit digest; on resume an in-flight turn is truncated when the commit digest is absent and kept when it is present — never invented.
 - **E9-T9 · Session directory layout, spill and permissions** — `size:S` · deps: `E9-T2` · labels: `type:chore`, `area:state`, `milestone:m0`
   - AC: the documented layout is created with the documented modes (transcripts `0600`, index `0644`); spilled tool output lives under the session's `outputs/` and is bounded.
+- **E9-T12 · Message ids are unique within a session, across rounds and resumes** — `size:M` · deps: `E9-T10`, `E9-T11` · labels: `type:fix`, `area:state`, `risk:data-loss`, `milestone:m0`
+  - Found in the 2026-11-23 review: every round commits as `<turn>/assistant`, so a multi-round turn writes the same id more than once; and the turn counter is process-wide from zero, so a resumed session repeats `turn-0001`.
+  - AC: assistant and tool message ids include the round (for example `turn-0003/r2/assistant`).
+  - AC: a resumed session's turn counter starts after the highest turn in its log, and the counter belongs to the controller rather than a package variable.
+  - AC: a test resumes a session with two turns, runs a two-round turn, and asserts every message id in the log is distinct.
+- **E9-T13 · A failed save is reported when it happens** — `size:S` · deps: `E9-T10` · labels: `type:fix`, `area:state`, `risk:data-loss`, `milestone:m0`
+  - Found in the 2026-11-23 review: `Transcript.Append` keeps the first write failure and says nothing until `Close`, so a session that stopped saving at minute one is discovered at exit.
+  - AC: the first write failure emits `Notice{Level: Warn, Code: "session.write_failed"}` at once, once per session; the TUI status line and the headless runner's stderr both show it.
+  - AC: a test injects a failing log and asserts the notice arrives during the turn rather than at `Close`.
+- **E9-T14 · A failed write leaves the log as it found it** — `size:M` · deps: `E9-T2` · labels: `type:fix`, `area:state`, `risk:data-loss`, `milestone:m0`
+  - Found in the 2026-11-23 review: a partial event-log write leaves its partial line while the revision is rolled back, and a canonical-view failure rolls back a revision already committed to the event log.
+  - AC: after a failed event-log write the file is truncated to its length before the write, or the writer marks itself unusable, so no partial line remains.
+  - AC: a canonical-view failure does not roll back a revision the event log already holds; tests cover both failures with an injected writer.
 
 ### E10 · TUI shell, transcript and rendering — M2
 
@@ -373,6 +413,21 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
   - AC: `/verbose` toggles expanded reasoning; a completed turn can fold its tool work into a summary line; an unexpanded reasoning row is one line with a token count.
 - **E10-T8 · Resize handling and render cache** — `size:M` · deps: `E10-T3` · labels: `type:feature`, `area:tui`, `risk:perf`, `milestone:m2`
   - AC: on resize, rows re-render at the new width instead of keeping stale wrapping; the render cache is keyed by width and fold state and invalidates only affected rows.
+- **E10-T10 · A frame while the model thinks** — `size:S` · deps: `E10-T1` · labels: `type:feature`, `area:tui`, `milestone:m2`
+  - On the board before it was in this file: the screen only redrew when an event arrived, so the terminal sat still between Enter and the first token.
+  - AC: a running turn redraws on a timer driven by the injected clock, and the chain stops when the turn ends; one tick is in flight at a time.
+  - AC: the test drives the events the pump really delivers (batched), not raw events.
+- **E10-T11 · Wait for the turn before closing the session on exit** — `size:S` · deps: `E10-T9` · labels: `type:fix`, `area:cli`, `area:tui`, `risk:data-loss`, `milestone:m2`
+  - Found in the 2026-11-23 review: the two defers in `startSession` unwind last-in-first-out, so the session closes before the turn is cancelled and waited for. `Transcript` is unlocked, so that is a data race, and anything appended after the close is lost silently with exit `0`.
+  - AC: quitting mid-turn cancels the turn, waits for it, and only then closes the session, in one function a test can call.
+  - AC: a test runs that function against a provider that is still streaming and asserts, under `-race`, that every message the turn appended reached the log.
+- **E10-T12 · Only streaming deltas may be dropped** — `size:M` · deps: `E10-T2` · labels: `type:fix`, `area:core`, `area:tui`, `risk:data-loss`, `milestone:m2`
+  - Found in the 2026-11-23 review: `ChannelSink.Emit` drops whatever arrives while the buffer is full, including `TurnDone`, which leaves the spinner running and the TUI believing a turn is in progress.
+  - AC: only coalescible events (`TextDelta`, `ReasoningDelta`, `ToolProgress`, `UsageReported`) can be dropped; lifecycle and decision events are always delivered and the engine is still never blocked.
+  - AC: the policy is written once beside `SinkBufferSize`, and a test fills the buffer with deltas and asserts a `TurnDone` still arrives.
+- **E10-T13 · Stop a running turn without quitting** — `size:M` · deps: `E10-T1`, `E4-T6` · labels: `type:feature`, `area:tui`, `milestone:m2`
+  - AC: Escape with no overlay open cancels the running turn, the transcript shows it as cancelled, and the composer stays usable; Ctrl-C during a turn cancels it and a second Ctrl-C (or one while idle) quits.
+  - AC: a test drives real key messages, not hand-built `Key` values, and asserts `Cancel` was called and the program is still running.
 
 ### E11 · TUI interaction surfaces — M2
 
@@ -457,6 +512,14 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
   - AC: lifecycle records carry schema version, sequence and kind, and contain **no** prompts, reasoning, tool arguments, tool output or approval text; the final record is a run-done summary; the flag cannot be combined with `--output-format`.
 - **E14-T7 · `--metrics`** — `size:S` · deps: `E3-T9` · labels: `type:feature`, `area:cli`, `milestone:m1`
   - AC: writes a machine-readable total (tokens, cache reads/writes, cost, duration, turn and tool-call counts) so a run is comparable without reading its transcript.
+- **E14-T8 · Ctrl-C in a headless run cancels the turn and saves** — `size:M` · deps: `E14-T1`, `E4-T6` · labels: `type:fix`, `area:cli`, `milestone:m1`
+  - Found in the 2026-11-23 review: `run` handles no signals, so Ctrl-C kills the process before the deferred `Close` runs.
+  - AC: SIGINT/SIGTERM cancel the turn's context; the run waits for `Done`, closes the session and exits `1`; a second Ctrl-C exits at once.
+  - AC: an integration test sends SIGINT to a running `run` against a scripted provider and asserts the exit code and that every committed message reached the log.
+- **E14-T9 · `-p` prints only the final answer, and reasoning stays off stdout** — `size:S` · deps: `E14-T2`, `E14-T3` · labels: `type:fix`, `area:cli`, `milestone:m0`
+  - Found in the 2026-11-23 review: `-p` prints every assistant commit, including intermediate rounds, and the default text mode writes reasoning to stdout unmarked.
+  - AC: `-p` prints the text of the turn's last round, once, after `TurnDone`; reasoning never reaches stdout and goes to stderr in the default text mode.
+  - AC: tests drive a two-round turn through the printer and assert stdout exactly.
 
 ### E15 · MCP client — M4
 
@@ -600,6 +663,10 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
   - AC: a checklist exists for re-syncing this portfolio with upstream Reasonix's vocabulary (R9).
 - **E21-T4 · CONTRIBUTING and architecture notes** — `size:M` · deps: `E1-T6` · labels: `type:docs`, `area:docs`, `milestone:m5`
   - AC: contribution guide covers the ticket workflow, the architecture rule, the dependency policy and the test expectations; `docs/ARCHITECTURE.md` is the short version of TDD §6.2 for new contributors.
+- **E21-T5 · Bring the docs and the board back in line** — `size:M` · deps: `E20-T9` · labels: `type:docs`, `area:docs`, `milestone:m2`
+  - Found in the 2026-11-23 review: this file's header and B2 table had drifted from its bullets, tickets on the board were missing here, and the board's E11-T3/T4/T5 reuse ids this file gives to other tickets.
+  - AC: the 2026-11-23 review's tickets and E10-T10 are in this file, and the header count and B2 table match the bullets.
+  - AC: the reused E11 ids are resolved under B0's rule, README status and TDD §6.12.3 match the code, and the document-consistency test (E20-T9) also checks this file's header count and B2 table.
 
 ### E22 · Release and distribution — M5
 

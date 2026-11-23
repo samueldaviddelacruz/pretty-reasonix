@@ -947,24 +947,24 @@ Detail, dependencies and per-ticket acceptance criteria are in **Appendix B**.
 | **E1** | Project foundation, conventions and CI | M0 | 8 |
 | **E2** | Configuration, paths and identity | M0 | 7 |
 | **E3** | Provider layer: registry, wire kinds, streaming | M0 | 10 |
-| **E4** | Turn loop, events and the controller | M0 | 11 |
+| **E4** | Turn loop, events and the controller | M0 | 17 |
 | **E5** | Tool framework and the local toolbelt | M0–M1 | 14 |
 | **E6** | Permission engine | M1 | 8 |
 | **E7** | Sandbox and workspace trust | M1 | 7 |
 | **E8** | Context management and compaction | M3 | 7 |
-| **E9** | Sessions, storage and continuity | M0–M3 | 11 |
-| **E10** | TUI shell, transcript and rendering | M2 | 9 |
+| **E9** | Sessions, storage and continuity | M0–M3 | 14 |
+| **E10** | TUI shell, transcript and rendering | M2 | 13 |
 | **E11** | TUI interaction surfaces | M2 | 10 |
 | **E12** | Theming, keymap and i18n | M2 | 6 |
 | **E13** | Code, diff and markdown rendering | M2 | 5 |
-| **E14** | Headless `run`/`-p` and automation contract | M0–M1 | 7 |
+| **E14** | Headless `run`/`-p` and automation contract | M0–M1 | 9 |
 | **E15** | MCP client | M4 | 8 |
 | **E16** | Skills and custom slash commands | M4 | 7 |
 | **E17** | Hooks | M4 | 5 |
 | **E18** | Instructions and `@`-references | M4 | 4 |
 | **E19** | CLI surface: routing, setup, doctor, completion | M5 | 6 |
 | **E20** | Quality: test harness and end-to-end suite | M0–M5 | 10 |
-| **E21** | Documentation and onboarding | M5 | 4 |
+| **E21** | Documentation and onboarding | M5 | 5 |
 | **E22** | Release and distribution | M5 | 4 |
 
 Roadmap-tier epics (not v1) are listed in Appendix B §R1.
