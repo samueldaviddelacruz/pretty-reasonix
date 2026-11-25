@@ -145,3 +145,78 @@ func TestATurnStopsWhenTheBudgetRunsOut(t *testing.T) {
 		t.Fatalf("the turn ended as %+v, want blocked", events[len(events)-1])
 	}
 }
+
+// between is a tool that runs a function while the turn is between its rounds, which is the only moment a
+// change can reach round 2 without also reaching round 1.
+type between struct{ fn func() }
+
+func (between) Name() string            { return "read_file" }
+func (between) Description() string     { return "runs a function between rounds" }
+func (between) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (between) ReadOnly() bool          { return true }
+func (b between) Execute(context.Context, json.RawMessage) (tool.Result, error) {
+	b.fn()
+	return tool.Result{Output: "ok"}, nil
+}
+
+// TestEveryRoundRunsUnderThePolicyTheTurnBeganWith is E4-T12. The policy changes while round 1's tool is
+// running, so round 2's request is built after the change. Both requests must still carry the turn's
+// original temperature, effort and output cap: the policy block the model read at the start of the turn
+// described those, and a turn whose later rounds quietly run hotter or longer contradicts it.
+//
+// It asserts on the requests the provider received rather than on the policy block, because the block was
+// always right; what drifted was the request.
+func TestEveryRoundRunsUnderThePolicyTheTurnBeganWith(t *testing.T) {
+	t.Parallel()
+	var c *agent.Controller
+	tools := registry.NewRegistry()
+	if err := tools.Add(between{fn: func() {
+		c.SetPolicy(agent.Policy{
+			Model:       model.Model{Provider: "scripted", Name: "m", MaxOutputTokens: 9},
+			Temperature: 0.9,
+			Effort:      provider.EffortHigh,
+		})
+	}}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	p := &scriptedProvider{answers: [][]provider.Chunk{
+		{
+			provider.ToolCallChunk{Call: provider.ToolCall{ID: "c1", Name: "read_file", Arguments: `{}`}},
+			provider.DoneChunk{},
+		},
+		textAnswer("done"),
+	}}
+	var err error
+	c, err = agent.NewController(agent.Deps{
+		Provider:   p,
+		Transcript: &session.Transcript{},
+		Sink:       &recorder{},
+		Policy: agent.Policy{
+			Model:       model.Model{Provider: "scripted", Name: "m", MaxOutputTokens: 1000},
+			Temperature: 0.2,
+			Effort:      provider.EffortLow,
+		},
+		Registry: tools,
+		Boundary: registry.Boundary{Dir: t.TempDir()},
+	})
+	if err != nil {
+		t.Fatalf("NewController: %v", err)
+	}
+
+	control, err := c.Run(context.Background(), agent.TurnInput{Text: "go"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	<-control.Done()
+
+	seen := p.seen()
+	if len(seen) != 2 {
+		t.Fatalf("%d requests, want one per round", len(seen))
+	}
+	for i, request := range seen {
+		if request.Temperature != 0.2 || request.MaxTokens != 1000 || request.Effort != provider.EffortLow {
+			t.Errorf("round %d sent temperature %v, max tokens %d, effort %q; want the turn's 0.2, 1000, %q",
+				i+1, request.Temperature, request.MaxTokens, request.Effort, provider.EffortLow)
+		}
+	}
+}

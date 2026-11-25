@@ -35,16 +35,14 @@ type Round struct {
 // The request is built once and reused for a retry, which is the session's first criterion stated as
 // code. Rebuilding on retry would let the retry answer a different question — a transcript that grew, a
 // tool list that changed, or a map iterated in another order — and the model would have no way to say so.
-func (c *Controller) Round(ctx context.Context, turnID string, input TurnInput) (Round, error) {
+//
+// The policy is an argument, not something the round looks up: a turn freezes its policy when it starts, and
+// every round of it runs under that copy. Reading the controller's live policy here meant a SetPolicy during
+// round 1's tools changed round 2's temperature, effort and output cap, while the policy block the model had
+// already read still described the old ones.
+func (c *Controller) Round(ctx context.Context, turnID string, policy Policy) (Round, error) {
 	if ctx == nil {
 		return Round{}, errors.New("a round needs a context")
-	}
-	policy := c.Policy()
-	if hasModel(input.Model) {
-		policy.Model = input.Model
-	}
-	if input.Effort.IsSet() {
-		policy.Effort = input.Effort
 	}
 
 	request, err := c.buildRequest(policy)

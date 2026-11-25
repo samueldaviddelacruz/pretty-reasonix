@@ -220,7 +220,7 @@ func (c *Controller) run(ctx context.Context, running *turn, input TurnInput, po
 	// answer the first question and ignore every tool call inside the answer, which is what this ticket
 	// exists to fix — the tools and the executor both worked and nothing joined them.
 	for range c.maxSteps {
-		round, err := c.Round(ctx, running.id, input)
+		round, err := c.Round(ctx, running.id, policy)
 		if err != nil {
 			c.endWithError(running, input, round, err)
 			return
