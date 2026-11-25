@@ -2,7 +2,7 @@
 
 Companion to [`TECHNICAL_DESIGN.md`](./TECHNICAL_DESIGN.md). This is the **file the GitHub project board is populated from**: one ticket per bullet, one epic per section, one milestone per group.
 
-**184 v1 tickets across 22 epics and 6 milestones**, plus a roadmap tier (§R1) that records every deferred subsystem with a stub ticket, so deferral is explicit rather than forgotten.
+**187 v1 tickets across 22 epics and 6 milestones**, plus a roadmap tier (§R1) that records every deferred subsystem with a stub ticket, so deferral is explicit rather than forgotten.
 
 ---
 
@@ -68,7 +68,7 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
 | E8 | Context management and compaction | M3 | 7 | E3, E4, E9 |
 | E9 | Sessions, storage and continuity | M0–M3 | 14 | E1, E2 |
 | E10 | TUI shell, transcript and rendering | M2 | 13 | E4, E9, E13-T4 |
-| E11 | TUI interaction surfaces | M2 | 10 | E10, E12 |
+| E11 | TUI interaction surfaces | M2 | 13 | E10, E12 |
 | E12 | Theming, keymap and i18n | M2 | 6 | E10 |
 | E13 | Code, diff and markdown rendering | M2 | 5 | E10 |
 | E14 | Headless `run`/`-p` and automation contract | M0–M1 | 9 | E4, E5, E6 |
@@ -367,7 +367,7 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
   - AC: `--continue` resumes the newest session, and starts a fresh one with a notice when there is nothing to resume; `--resume QUERY` accepts an id, a path or a unique title substring and reports missing and ambiguous matches distinguishably; `--copy` writes the new conversation under a fresh id and leaves the original untouched.
 - **E9-T6 · Picker data and preview metadata** — `size:M` · deps: `E9-T4` · labels: `type:feature`, `area:state`, `milestone:m2`
   - AC: listing reads only the index and **never decodes a transcript** (asserted by a test); each row shows title, model, turn count, age and a first-prompt excerpt; an unindexed session shows "indexing" and is repaired in the background (U10).
-- **E9-T7 · Single-writer lease** — `size:M` · deps: `E9-T2` · labels: `type:feature`, `area:state`, `risk:data-loss`, `milestone:m2`
+- **E9-T7 · Single-writer lease** — `size:M` · deps: `E9-T2` · labels: `type:feature`, `area:state`, `risk:data-loss`, `milestone:m0`
   - AC: opening a session for writing takes a lease; a second writer gets a typed error naming the holder and is offered `--copy`; a stale lease from a dead process is reclaimable with a notice.
 - **E9-T8 · In-flight turn record and crash repair** — `size:M` · deps: `E9-T4` · labels: `type:feature`, `area:state`, `risk:data-loss`, `milestone:m2`
   - AC: a turn in flight records its start index, revision and digest plus its commit digest; on resume an in-flight turn is truncated when the commit digest is absent and kept when it is present — never invented.
@@ -437,13 +437,18 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
   - AC: multi-line with `Enter` send and `Shift+Enter`/`Alt+Enter`/`Ctrl+J` newline; dynamic height capped at 8 rows; a themed cursor per `[ui] cursor_shape`; paste of multi-line text is folded into an editable token.
 - **E11-T2 · Completion menus for `/` and `@`** — `size:M` · deps: `E11-T1` · labels: `type:feature`, `area:tui`, `milestone:m2`
   - AC: one menu implementation; `Tab`/`Enter` accept; `@` descends exactly one directory level per keystroke using a single directory read (never a recursive walk) and lists MCP resources beside files; the menu changes height only on discrete actions, never per streamed token.
-- **E11-T3 · Decision card component and posture keys** — `size:L` · deps: `E10-T5`, `E6-T4` · labels: `type:feature`, `area:tui`, `milestone:m2`
-  - AC: one component renders approval, `ask`, workspace trust, sandbox-escape and error-recovery prompts with consistent verbs (`y`/`a`/`p`/`n` plus number keys), a preview pane, and the stable refusal code that tests assert on (U5).
-  - AC: `Shift+Tab` cycles read-only → ask → auto → YOLO → plan and `Ctrl+Y` toggles YOLO, restoring the previous posture on toggle back.
-- **E11-T4 · Pickers** — `size:M` · deps: `E10-T5` · labels: `type:feature`, `area:tui`, `milestone:m2`
-  - AC: one searchable picker used by session/model/provider/theme selection; arrow and `Ctrl+P`/`Ctrl+N` move; `j`/`k` navigate while the query is empty and become query text once typing starts; `Esc` cancels without side effects.
-- **E11-T5 · Todo panel** — `size:M` · deps: `E10-T3`, `E5-T12` · labels: `type:feature`, `area:tui`, `milestone:m2`
-  - AC: an 8-row window centred on the `in_progress` item; two-level indentation; completed items show their sign-off evidence kind; the panel appears only while a list exists.
+- **E11-T3 · Keys reach the composer** — `size:S` · deps: `E11-T1` · labels: `type:feature`, `area:tui`, `milestone:m2`
+  - On the board before it was in this file (#152, done).
+  - AC: a key press reaches the composer: `Enter` sends, a modified `Enter` inserts a newline, text inserts at the cursor, `Backspace` removes a rune.
+  - AC: the bottom region is sized from the overlay stack plus the composer height, and the transcript gets the rest; sending calls the caller-supplied `Send`, and a nil `Send` records without acting.
+- **E11-T4 · Assemble the TUI** — `size:M` · deps: `E11-T3` · labels: `type:feature`, `area:tui`, `milestone:m2`
+  - On the board before it was in this file (#154, done).
+  - AC: a bare invocation builds a run through `assembly.Build`, pumps its sink into the program and hands submitted text to `Controller.Run`; the TUI and `run` share that one builder.
+  - AC: the session is closed on the way out, and a failure to save is reported.
+- **E11-T5 · Build closes what it opens** — `size:S` · deps: `E11-T4` · labels: `type:fix`, `area:state`, `milestone:m2`
+  - On the board before it was in this file (#156, done).
+  - AC: `Run.Close` releases the workspace handle as well as the transcript, joined so neither failure hides the other, and a second `Close` is harmless.
+  - AC: every error path out of `Build` closes what it has already opened.
 - **E11-T6 · Status line** — `size:M` · deps: `E10-T4` · labels: `type:feature`, `area:tui`, `milestone:m2`
   - AC: `compact` shows posture and interaction state on the left and model/effort on the right; `full` adds cache hit rate, context use, compaction headroom, git identity and background job count; `off` hides it; segments are configurable (U4).
   - AC: narrow terminals move or compact whole groups rather than cutting a label in half.
@@ -456,6 +461,16 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
 - **E11-T10 · Slash command registry, dispatch and `/help`** — `size:L` · deps: `E10-T4` · labels: `type:feature`, `area:tui`, `milestone:m2`
   - AC: one registry drives completion, `/help` and dispatch so the displayed list cannot drift from what is accepted; the v1 command set from Appendix A §A4.3 is implemented; MCP prompt commands and project commands appear dynamically.
   - AC: unknown commands produce a suggestion based on edit distance rather than a bare error.
+- **E11-T11 · Decision card component and posture keys** — `size:L` · deps: `E10-T5`, `E6-T4` · labels: `type:feature`, `area:tui`, `milestone:m2`
+  - Was E11-T3 until 2026-11-25: the board had already given that id to another ticket, which keeps it because it is in commit history (B0).
+  - AC: one component renders approval, `ask`, workspace trust, sandbox-escape and error-recovery prompts with consistent verbs (`y`/`a`/`p`/`n` plus number keys), a preview pane, and the stable refusal code that tests assert on (U5).
+  - AC: `Shift+Tab` cycles read-only → ask → auto → YOLO → plan and `Ctrl+Y` toggles YOLO, restoring the previous posture on toggle back.
+- **E11-T12 · Pickers** — `size:M` · deps: `E10-T5` · labels: `type:feature`, `area:tui`, `milestone:m2`
+  - Was E11-T4 until 2026-11-25: the board had already given that id to another ticket, which keeps it because it is in commit history (B0).
+  - AC: one searchable picker used by session/model/provider/theme selection; arrow and `Ctrl+P`/`Ctrl+N` move; `j`/`k` navigate while the query is empty and become query text once typing starts; `Esc` cancels without side effects.
+- **E11-T13 · Todo panel** — `size:M` · deps: `E10-T3`, `E5-T12` · labels: `type:feature`, `area:tui`, `milestone:m2`
+  - Was E11-T5 until 2026-11-25: the board had already given that id to another ticket, which keeps it because it is in commit history (B0).
+  - AC: an 8-row window centred on the `in_progress` item; two-level indentation; completed items show their sign-off evidence kind; the panel appears only while a list exists.
 
 ### E12 · Theming, keymap and i18n — M2
 

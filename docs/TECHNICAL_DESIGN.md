@@ -734,9 +734,9 @@ type Row struct {
 | --- | --- | --- |
 | Composer | Multi-line textarea; `Enter` sends, `Shift+Enter`/`Alt+Enter`/`Ctrl+J` newline; dynamic height capped at 8; themed cursor | E10-T4 |
 | Completion menu | Opens on `/` or `@`; `Tab`/`Enter` accept; `@` descends one directory level per keystroke via `os.ReadDir` (never a recursive walk) and lists MCP resources alongside files; height changes only on discrete actions, never per token | E11-T2 |
-| Decision card (U5) | **One** component for approvals, `ask`, workspace trust, sandbox escape and error recovery: keyboard-first verbs, consistent verbs (`y`/`a`/`p`/`n` + numbers), a preview pane, and a stable code so tests assert on codes | E11-T3 |
-| Pickers | Searchable session/model/provider/theme pickers sharing one implementation; `j`/`k` navigate while the query is empty and become query text once typing starts; `Esc` cancels | E11-T4 |
-| Todo panel | An 8-row window centred on the `in_progress` item, with two-level indentation and step sign-off state | E11-T5 |
+| Decision card (U5) | **One** component for approvals, `ask`, workspace trust, sandbox escape and error recovery: keyboard-first verbs, consistent verbs (`y`/`a`/`p`/`n` + numbers), a preview pane, and a stable code so tests assert on codes | E11-T11 |
+| Pickers | Searchable session/model/provider/theme pickers sharing one implementation; `j`/`k` navigate while the query is empty and become query text once typing starts; `Esc` cancels | E11-T12 |
+| Todo panel | An 8-row window centred on the `in_progress` item, with two-level indentation and step sign-off state | E11-T13 |
 | Status line (U4) | Compact default: posture + state on the left, model/effort on the right. `full`: adds cache-hit rate, context use, compaction headroom, git identity, background jobs. `off`: nothing. Toggle with `/status`; segments configurable | E11-T6 |
 | Tool cards | `● Verb(arg)` with a `⎿`-style gutter, category-coloured dot, elapsed time when running, fold to a one-line summary when settled | E13-T2 |
 | Diff cards | Colourised add/remove with a line-number gutter; folds computed **before** syntax highlighting (a coloured row is ~1.4 ms, so a folded preview must not pay to highlight what it discards); the external formatter runs off the render path and only invalidates the blocks that used it | E13-T3 |
@@ -954,7 +954,7 @@ Detail, dependencies and per-ticket acceptance criteria are in **Appendix B**.
 | **E8** | Context management and compaction | M3 | 7 |
 | **E9** | Sessions, storage and continuity | M0–M3 | 14 |
 | **E10** | TUI shell, transcript and rendering | M2 | 13 |
-| **E11** | TUI interaction surfaces | M2 | 10 |
+| **E11** | TUI interaction surfaces | M2 | 13 |
 | **E12** | Theming, keymap and i18n | M2 | 6 |
 | **E13** | Code, diff and markdown rendering | M2 | 5 |
 | **E14** | Headless `run`/`-p` and automation contract | M0–M1 | 9 |

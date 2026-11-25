@@ -219,7 +219,7 @@ Full model-facing inventory. **R** = read-only. The last column is our v1 decisi
 | Execution presets | `balanced` (default) / `delivery` (legacy `economy`/`light` → `balanced`); change host policy, not the tool list; all presets share the same provider-visible surface | **E4-T9** (partial: preset plumbing + Delivery readiness), rest in roadmap |
 | Reasoning effort | Per-provider effort levels, overridable per session/sub-agent/profile | **E3-T9, E19-adjacent** |
 | Output styles | `/output-style` selects an answer persona | **E12-T6** |
-| Permission postures | As §A6. Shift+Tab cycles read-only → ask → auto → YOLO → plan; Ctrl+Y toggles YOLO and returns to the previous posture | **E11-T3** |
+| Permission postures | As §A6. Shift+Tab cycles read-only → ask → auto → YOLO → plan; Ctrl+Y toggles YOLO and returns to the previous posture | **E11-T11** |
 | Verbose/expanded reasoning | `/verbose` toggles expanded reasoning display | **E10-T7** |
 | Budgets | No round/token/time/cost limit by default; opt-in `task_cost_budget`, `task_time_budget_minutes`, `goal_token_budget` | Deferred except `--max-steps` (**E14-T3**) |
 
@@ -361,7 +361,7 @@ These are the observations behind the UX thesis (TDD §4.2).
 | O2 | **Overlay ownership is a convention.** A new modal must remember to hide the composer and extend layout tests. | Declare ownership in the overlay interface; derive composer visibility. (**U2, E10-T5**) |
 | O3 | **Inline and fullscreen behave differently.** Inline cannot repaint, so folds become pinned/substituted and diff formatting runs synchronously; the renderer branches on `scr != nil` in several places. | One settled/unsettled row model; mode changes only the sink. (**U3, E10-T6**) |
 | O4 | **The footer is dense and fixed.** Posture + state left, model/effort right, and a second row of telemetry. Narrow terminals compact groups rather than cutting labels. | Compact default + toggleable `full`, configurable segments. (**U4, E11-T6**) |
-| O5 | **Interruptions come in several flavours.** Approvals, `ask` cards, URL-origin asks, setup, connection and recovery cards are related but separate surface types. | One decision-card component with consistent verbs and a stable code. (**U5, E11-T3**) |
+| O5 | **Interruptions come in several flavours.** Approvals, `ask` cards, URL-origin asks, setup, connection and recovery cards are related but separate surface types. | One decision-card component with consistent verbs and a stable code. (**U5, E11-T11**) |
 | O6 | **Context and cost are telemetry, not a view.** Cache hit rate, context use and compaction headroom live in the footer; there is no first-class "what is filling my window" breakdown. | `/context` breakdown + `/status` drawer. (**U6, E8-T7, E11-T6**) |
 | O7 | **~60 model-facing tools.** Kept manageable only by the capability proxy and phase visibility. | Same proxy, a much smaller always-on surface. (**U7, E5-T14**) |
 | O8 | **Rewind coverage is subtle.** Correct and honest, but the user must understand `bash_side_effect` vs `manual_edit` to trust it. | When we build it, surface coverage in the picker row itself, not just in the result. (roadmap) |
