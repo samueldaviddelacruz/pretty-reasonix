@@ -224,10 +224,11 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
   - AC: a built-in system prompt lives in one place (a constant or an embedded file) and covers role, workspace root, tool conventions and the host/model authority split (TDD §2).
   - AC: `[agent] system_prompt` replaces it and `system_prompt_file` loads it from a file; setting both is a config error.
   - AC: the prompt is the first message of every request and is byte-identical across the turns of a session; a test asserts that the prefixes of two consecutive requests are equal.
-- **E4-T16 · Decide what a per-turn model means** — `size:M` · deps: `E4-T2` · labels: `type:feature`, `area:agent`, `area:provider`, `milestone:m2`
+- **E4-T16 · Switch model between turns, not within one** — `size:M` · deps: `E4-T2`, `E3-T10` · labels: `type:feature`, `area:agent`, `area:provider`, `milestone:m2`
   - Found in the 2026-11-23 review: `TurnInput.Model` changes the output cap and the policy block, but `provider.Request` has no model field and the provider is built once, so the request still goes to the session's model.
-  - AC: the TDD records whether a session can switch model (and provider) between turns.
-  - AC: if it can, a turn naming model B reaches B's scripted provider (test); if it can't, `TurnInput.Model` is removed.
+  - Decided 2026-11-25: a session switches model (and provider) between turns only, as a change to the session; a per-turn model would undo E4-T12's frozen policy and E4-T15's stable prefix.
+  - AC: `TurnInput.Model` is removed, and the TDD records the rule and that one provider's reasoning content may not carry over to another.
+  - AC: one controller switch operation resolves a reference (E3-T10) and is refused with a stable error while a turn runs; tests assert the next turn after switching to B reaches B's scripted provider, and that a switch mid-turn leaves the running turn unaffected.
 - **E4-T17 · Host blocks go before the request, not after it** — `size:S` · deps: `E4-T3` · labels: `type:fix`, `area:agent`, `milestone:m1`
   - Found in the 2026-11-23 review: the recovery record and the policy block are appended after the person's input, so the last thing the model reads is host bookkeeping.
   - AC: host-authored blocks for a turn come before the person's input (or share its message, clearly marked), so the input is the final content of the request.
