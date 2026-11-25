@@ -81,6 +81,11 @@ func roundController(t *testing.T, p provider.Provider, sink event.Sink) *agent.
 	return c
 }
 
+// oneRound runs a single round under the controller's policy, which is what the turn would have frozen.
+func oneRound(c *agent.Controller) (agent.Round, error) {
+	return c.Round(context.Background(), "turn-1", c.Policy())
+}
+
 // TestATextRoundEmitsDeltasAsTheyArriveAndCommitsOnce is E4-T4's second criterion in its plain form: a
 // frontend must be able to render a token before the answer is finished.
 func TestATextRoundEmitsDeltasAsTheyArriveAndCommitsOnce(t *testing.T) {
@@ -88,7 +93,7 @@ func TestATextRoundEmitsDeltasAsTheyArriveAndCommitsOnce(t *testing.T) {
 	p := &scriptedProvider{answers: [][]provider.Chunk{textAnswer("Well ", "hello", " there")}}
 	sink := &recorder{}
 
-	round, err := roundController(t, p, sink).Round(context.Background(), "turn-1", agent.TurnInput{})
+	round, err := oneRound(roundController(t, p, sink))
 	if err != nil {
 		t.Fatalf("Round: %v", err)
 	}
@@ -123,7 +128,7 @@ func TestOnlyCompleteToolCallsAreCollected(t *testing.T) {
 		provider.ToolCallChunk{Call: provider.ToolCall{ID: "c1", Name: "read_file", Arguments: `{"path":"go.mod"}`}},
 		provider.DoneChunk{},
 	}}}
-	round, err := roundController(t, p, &recorder{}).Round(context.Background(), "turn-1", agent.TurnInput{})
+	round, err := oneRound(roundController(t, p, &recorder{}))
 	if err != nil {
 		t.Fatalf("Round: %v", err)
 	}
@@ -147,7 +152,7 @@ func TestARetryReplaysTheIdenticalRequest(t *testing.T) {
 	}}
 	sink := &recorder{}
 
-	round, err := roundController(t, p, sink).Round(context.Background(), "turn-1", agent.TurnInput{})
+	round, err := oneRound(roundController(t, p, sink))
 	if err != nil {
 		t.Fatalf("Round: %v", err)
 	}
@@ -179,7 +184,7 @@ func TestASecondCutEndsTheTurn(t *testing.T) {
 	}
 	p := &scriptedProvider{answers: [][]provider.Chunk{cut(), cut(), cut()}}
 
-	_, err := roundController(t, p, &recorder{}).Round(context.Background(), "turn-1", agent.TurnInput{})
+	_, err := oneRound(roundController(t, p, &recorder{}))
 	if err == nil {
 		t.Fatal("a stream cut twice was replayed again")
 	}
@@ -198,7 +203,7 @@ func TestAFailureCommitsNothing(t *testing.T) {
 	}}}
 	c := roundController(t, p, &recorder{})
 
-	if _, err := c.Round(context.Background(), "turn-1", agent.TurnInput{}); err == nil {
+	if _, err := oneRound(c); err == nil {
 		t.Fatal("a failed round reported success")
 	}
 	if got := len(c.Messages()); got != 1 {
@@ -213,7 +218,7 @@ func TestAnEmptyAnswerCommitsNothing(t *testing.T) {
 	p := &scriptedProvider{answers: [][]provider.Chunk{{provider.DoneChunk{}}}}
 	c := roundController(t, p, &recorder{})
 
-	round, err := c.Round(context.Background(), "turn-1", agent.TurnInput{})
+	round, err := oneRound(c)
 	if err != nil {
 		t.Fatalf("Round: %v", err)
 	}
