@@ -116,10 +116,14 @@ func writeLines(w io.Writer, lines []string) error {
 // The usage text has promised "start an interactive session" since the first ticket, and until now it printed the
 // promise instead. The condition is deliberate: a program that draws escape sequences into a pipe has produced a file
 // nobody can read, so anything that is not a character device gets the usage text it always got.
-func startSession(stdout, stderr io.Writer) int {
-	// Named because the deferred close can fail after the program has exited cleanly, and a session that did not save must
-	// not report success.
-	exitCode := exitOK
+//
+// The result is named because the deferred close can fail after the program has exited cleanly, and a session that did
+// not save must not report success. Only a named result can be changed by a defer: this used to be a local variable,
+// and `return exitCode` copied it out before the close ran, so a failed save still exited 0.
+//
+//nolint:nonamedreturns // the one case [#43] allows: a defer must be able to change what is returned
+func startSession(stdout, stderr io.Writer) (exitCode int) {
+	exitCode = exitOK
 
 	// Both streams, because a program needs both: terminal output with piped input is a UI that can never receive a
 	// key, and it would fail as a hang rather than as a message.
@@ -144,20 +148,10 @@ func startSession(stdout, stderr io.Writer) int {
 	turnCtx, stopTurns := context.WithCancel(context.Background())
 	var running agent.TurnControl
 
-	// Registered before the close below, so it runs *after* it: defers unwind last-in-first-out, and the session must not
-	// be closed while a turn is still appending to its transcript. Cancelling alone is not enough — the append happens on
-	// the turn's goroutine, so this waits for Done before the close is reached.
+	// One defer, so the order is written out rather than implied by where two defers happen to sit: they unwind
+	// last-in-first-out, and the pair this replaced closed the session first and lost what the turn wrote on its way out.
 	defer func() {
-		stopTurns()
-		if running != nil {
-			<-running.Done()
-		}
-	}()
-
-	// Closed on every path: the session holds the conversation, and losing it silently is the failure this program is
-	// most careful about everywhere else.
-	defer func() {
-		if closeErr := built.Close(); closeErr != nil {
+		if closeErr := endSession(stopTurns, running, built.Close); closeErr != nil {
 			_, _ = fmt.Fprintf(stderr, "%s: the session was not fully saved: %v\n", config.BinaryName, closeErr)
 			exitCode = exitFailure
 		}
@@ -214,4 +208,19 @@ func fileDescriptor(file *os.File) (uintptr, error) {
 		return 0, errors.New("no file")
 	}
 	return file.Fd(), nil
+}
+
+// endSession stops the running turn, waits until it has finished writing, and only then closes the session.
+//
+// The order is the point. A cancelled turn is not a stopped one: the turn's goroutine still appends on its way out (the
+// results of the tools it was running when the person quit), and the transcript is not safe to close while it does. A
+// session closed first loses those messages without a word, because the append fails after Close has already returned.
+//
+// running is nil when nothing was ever sent, and that is the commonest exit.
+func endSession(stopTurns context.CancelFunc, running agent.TurnControl, closeSession func() error) error {
+	stopTurns()
+	if running != nil {
+		<-running.Done()
+	}
+	return closeSession()
 }
