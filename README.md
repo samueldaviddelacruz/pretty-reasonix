@@ -19,8 +19,17 @@ Inspired by the feature set of [Reasonix](https://github.com/esengine/DeepSeek-R
 
 ## Status
 
-Pre-implementation. The scope is locked (TDD §3) and the backlog is ready to be
-filed; no code has been written yet beyond the repository skeleton.
+In progress. The scope is locked (TDD §3), and open work is tracked as issues on
+the project board.
+
+- **M0, the walking skeleton**, is mostly built: `prx run "task"` (or `prx -p`)
+  answers through an OpenAI-compatible, Anthropic or Responses provider, using
+  the read-only tools `read_file`, `ls`, `glob` and `grep`, and each session is
+  written to disk as an event log.
+- **M2's shell came before M1.** A bare `prx` opens the terminal UI, but the
+  agent can only read: nothing yet writes a file or runs a command. Appendix B
+  §B4.1 records the order from here, which puts the permission gate before any
+  tool that writes.
 
 ## Shape
 
