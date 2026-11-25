@@ -22,6 +22,10 @@ var (
 	ticketHeadingRE = regexp.MustCompile(`(?m)^- \*\*(E\d+-T\d+) · `)
 	// epicMapRowRE matches one row of the epic map's table.
 	epicMapRowRE = regexp.MustCompile(`(?m)^\| \*\*(E\d+)\*\* \|[^|]*\|[^|]*\| (\d+) \|`)
+	// backlogIndexRowRE matches one row of the backlog's B2 epic index, which is not bolded.
+	backlogIndexRowRE = regexp.MustCompile(`(?m)^\| (E\d+) \|[^|]*\|[^|]*\| (\d+) \|`)
+	// backlogHeaderCountRE captures the ticket count stated at the top of the backlog.
+	backlogHeaderCountRE = regexp.MustCompile(`\*\*(\d+) v1 tickets`)
 	// epicSectionRE matches the heading of an epic's own section in the backlog.
 	epicSectionRE = regexp.MustCompile(`(?m)^### (E\d+) · `)
 	// roadmapStubRE matches a heading in the roadmap tier, which is not a v1 ticket.
@@ -117,28 +121,63 @@ func milestoneRank(milestone string) int {
 func TestTheEpicMapMatchesTheBacklog(t *testing.T) {
 	t.Parallel()
 	docs := theDocs(t)
+	compareEpicTable(t, "the TDD's epic map", docs["docs/TECHNICAL_DESIGN.md"], epicMapRowRE,
+		docs["docs/APPENDIX-B-BACKLOG.md"])
+}
 
+// TestTheBacklogsOwnEpicIndexMatchesItsTickets is the same check against the backlog's B2 table,
+// which sits a scroll away from the tickets it counts and drifted from them anyway: E21-T5 found
+// four epics wrong there while the TDD's map, which this suite already checked, was right.
+func TestTheBacklogsOwnEpicIndexMatchesItsTickets(t *testing.T) {
+	t.Parallel()
+	backlog := theDocs(t)["docs/APPENDIX-B-BACKLOG.md"]
+	compareEpicTable(t, "the backlog's B2 index", backlog, backlogIndexRowRE, backlog)
+}
+
+// TestTheBacklogHeaderCountMatchesItsTickets: the first number a reader of the backlog sees is
+// its own count, and it said 161 when the file held 168.
+func TestTheBacklogHeaderCountMatchesItsTickets(t *testing.T) {
+	t.Parallel()
+	backlog := theDocs(t)["docs/APPENDIX-B-BACKLOG.md"]
+
+	match := backlogHeaderCountRE.FindStringSubmatch(backlog)
+	if match == nil {
+		t.Fatal("the backlog's header no longer states a ticket count in bold, so nothing checks it")
+	}
+	stated, err := strconv.Atoi(match[1])
+	if err != nil {
+		t.Fatalf("the header's count %q is not a number: %v", match[1], err)
+	}
+	if defined := len(ticketHeadings(backlog)); defined != stated {
+		t.Errorf("the backlog's header says %d v1 tickets and the file defines %d", stated, defined)
+	}
+}
+
+// compareEpicTable checks a table of per-epic ticket counts against the tickets the backlog defines,
+// in both directions: a wrong count, and an epic with tickets and no row.
+func compareEpicTable(t *testing.T, table, body string, row *regexp.Regexp, backlog string) {
+	t.Helper()
 	declared := make(map[string]int)
-	for _, match := range epicMapRowRE.FindAllStringSubmatch(docs["docs/TECHNICAL_DESIGN.md"], -1) {
+	for _, match := range row.FindAllStringSubmatch(body, -1) {
 		count, err := strconv.Atoi(match[2])
 		if err != nil {
-			t.Fatalf("the epic map's %s row has an unreadable count %q: %v", match[1], match[2], err)
+			t.Fatalf("%s: the %s row has an unreadable count %q: %v", table, match[1], match[2], err)
 		}
 		declared[match[1]] = count
 	}
 	if len(declared) < 20 {
-		t.Fatalf("only %d epics were read out of the map, so the pattern no longer matches it", len(declared))
+		t.Fatalf("only %d epics were read out of %s, so the pattern no longer matches it", len(declared), table)
 	}
 
-	byEpic := ticketsByEpic(docs["docs/APPENDIX-B-BACKLOG.md"])
+	byEpic := ticketsByEpic(backlog)
 	for _, epic := range slices.Sorted(maps.Keys(declared)) {
 		if got := len(byEpic[epic]); got != declared[epic] {
-			t.Errorf("%s: the epic map says %d tickets, the backlog defines %d", epic, declared[epic], got)
+			t.Errorf("%s: %s says %d tickets, the backlog defines %d", epic, table, declared[epic], got)
 		}
 	}
 	for _, epic := range slices.Sorted(maps.Keys(byEpic)) {
 		if _, known := declared[epic]; !known {
-			t.Errorf("%s has tickets in the backlog and no row in the epic map", epic)
+			t.Errorf("%s has tickets in the backlog and no row in %s", epic, table)
 		}
 	}
 }

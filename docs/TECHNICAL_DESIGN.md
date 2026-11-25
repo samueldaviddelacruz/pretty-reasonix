@@ -732,7 +732,7 @@ type Row struct {
 
 | Surface | Behaviour | Ticket |
 | --- | --- | --- |
-| Composer | Multi-line textarea; `Enter` sends, `Shift+Enter`/`Alt+Enter`/`Ctrl+J` newline; dynamic height capped at 8; themed cursor | E10-T4 |
+| Composer | Multi-line textarea; `Enter` sends, `Shift+Enter`/`Alt+Enter`/`Ctrl+J` newline; dynamic height capped at 8; themed cursor | E11-T1 |
 | Completion menu | Opens on `/` or `@`; `Tab`/`Enter` accept; `@` descends one directory level per keystroke via `os.ReadDir` (never a recursive walk) and lists MCP resources alongside files; height changes only on discrete actions, never per token | E11-T2 |
 | Decision card (U5) | **One** component for approvals, `ask`, workspace trust, sandbox escape and error recovery: keyboard-first verbs, consistent verbs (`y`/`a`/`p`/`n` + numbers), a preview pane, and a stable code so tests assert on codes | E11-T11 |
 | Pickers | Searchable session/model/provider/theme pickers sharing one implementation; `j`/`k` navigate while the query is empty and become query text once typing starts; `Esc` cancels | E11-T12 |
