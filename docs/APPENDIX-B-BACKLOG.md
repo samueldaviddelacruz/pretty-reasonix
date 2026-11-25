@@ -247,13 +247,14 @@ Within a milestone, work items are ordered by **what unblocks the most other tic
   - AC: a test asserts maintenance never rewrites a stored tool body.
 - **E5-T4 · Read-only tools: `read_file`, `ls`, `glob`, `grep`** — `size:L` · deps: `E5-T3` · labels: `type:feature`, `area:tools`, `milestone:m0`, `good-first-issue`
   - AC: `read_file` is line-numbered with offset/limit and defaults to 2000 lines; `glob`/`grep` enforce result and timeout ceilings; `ls` skips VCS and dependency noise.
-- **E5-T5 · `write_file` and write-root resolution** — `size:M` · deps: `E7-T1` · labels: `type:feature`, `area:tools`, `risk:security`, `milestone:m1`
+- **E5-T5 · `write_file` and write-root resolution** — `size:M` · deps: `E7-T1`, `E6-T4` · labels: `type:feature`, `area:tools`, `risk:security`, `milestone:m1`
   - AC: creation of parent directories; refusal outside write roots with a typed error; `protect_changed_files` refuses a whole-file write over a change made since the agent last read or wrote the file.
+  - AC: a writer is offered to the TUI only once `E11-T11` has landed (B4.1); until then a test on the TUI's assembly fails if any non-read-only tool reaches it.
 - **E5-T6 · `edit_file` and `multi_edit`** — `size:M` · deps: `E5-T5` · labels: `type:feature`, `area:tools`, `milestone:m1`
   - AC: `edit_file` requires a unique `old_string` and names the ambiguity count when it is not unique; `multi_edit` applies atomically — all edits succeed or the file is untouched.
 - **E5-T7 · `move_file` and `delete_range`** — `size:M` · deps: `E5-T5` · labels: `type:feature`, `area:tools`, `milestone:m1`
   - AC: `move_file` refuses an existing destination and checks **both** ends against write roots; `delete_range` requires unique anchors and returns a unified diff.
-- **E5-T8 · `bash`** — `size:L` · deps: `E7-T3`, `E7-T4`, `E6-T5` · labels: `type:feature`, `area:tools`, `risk:security`, `milestone:m1`
+- **E5-T8 · `bash`** — `size:L` · deps: `E7-T3`, `E7-T4`, `E6-T5`, `E6-T4` · labels: `type:feature`, `area:tools`, `risk:security`, `milestone:m1`
   - AC: runs inside the sandbox spec; foreground timeout enforced host-side; a background invocation returns a job id; combined stdout/stderr; a write outside the roots is denied by the sandbox and reported as a typed failure.
 - **E5-T9 · Background jobs: `bash_output`, `kill_shell`, `wait`** — `size:M` · deps: `E5-T8` · labels: `type:feature`, `area:tools`, `milestone:m1`
   - AC: output is readable incrementally without blocking; a killed job reports its status; jobs are cleaned up at session end and their output is bounded.
@@ -714,6 +715,23 @@ M0's critical path, in dependency order — a shippable walking skeleton in one 
 | 9 | `E14-T2`, `E14-T4` (text only), `E20-T2` | `E1-T6`, `E1-T8` |
 
 **Definition of done for M0:** `prx -p "read main.go and summarise it"` completes against a real OpenAI-compatible endpoint, writes a valid event log plus index, resumes with `--continue`, and passes CI on macOS and Linux — all with `read_file`, `ls`, `glob`, `grep` and a permission gate that refuses `write_file` in `ask` without an approver.
+
+### B4.1 Order from M2 back to M1 (decided 2026-11-25)
+
+M2's shell was built before M1, which was safe only because every tool the agent had could only read. From here the order keeps one rule: **no tool that writes or runs a command ships before the gate that covers it.**
+
+| Order | Tickets | Why here |
+| --- | --- | --- |
+| 0 | the 2026-11-23 review fixes (`E4-T12` … `E20-T2`) | they repair the turn loop and the event stream every M1 ticket builds on |
+| 1 | `E6-T1` → `E6-T2` → `E6-T3` → `E6-T7`, then `E6-T4` | rules, subjects, decisions and headless refusals, then the gate; nothing can be gated before it and none of it needs the OS |
+| 2 | `E11-T11` | the only M2 ticket blocked on M1: the TUI is the only interactive approver, so it needs the card before it is given a writer |
+| 3 | `E7-T1` → `E7-T2` → `E5-T5` → `E5-T6`, `E5-T7` → `E6-T8` | gated, confined file writers: the agent becomes useful without needing the OS jail |
+| 4 | `E7-T3`, `E7-T4` → `E7-T5` → `E6-T5` → `E5-T8` → `E5-T9` | the shell, last and largest: M1's exit says a shell runs in a real jail or is refused, so the jail comes first |
+| 5 | `E7-T6` → `E7-T7` | trust and the default posture mean something only once 1–4 exist |
+
+Filler that blocks nothing and can land in any gap: `E4-T7`–`E4-T9`, `E4-T15`, `E4-T17`, `E5-T10`–`E5-T14`, `E14-T4`–`E14-T8`. The rest of M2 (pickers, todo panel, status line, themes) waits until step 3 is done.
+
+**Until `E11-T11` lands, the TUI is offered read-only tools only**, and a test on its assembly enforces that rather than this paragraph (see `E5-T5`).
 
 ---
 
